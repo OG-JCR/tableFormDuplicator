@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Table & Form Duplicator** is a powerful web-based tool designed to duplicate table structures and forms within the Ignatius.io platform. It provides an intuitive interface for copying tables with their fields, custom field types, and associated forms, including complex form logic and conditional rules.
+The **Table & Form Duplicator** is a powerful web-based tool designed to duplicate table structures and forms within the GAB Platform. It provides an intuitive interface for copying tables with their fields, custom field types, and associated forms, including complex form logic and conditional rules.
 
 ## Features
 
@@ -40,7 +40,7 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
 ### Prerequisites
 
 - Modern web browser (Chrome, Firefox, Safari, Edge)
-- Access to Ignatius.io platform
+- Access to the GAB Platform
 - Valid user token with appropriate permissions
 
 ### Configuration
@@ -52,7 +52,7 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
    userToken = CryptoJS.AES.decrypt(encryptedToken, aesKEY).toString(CryptoJS.enc.Utf8);
    ```
 
-2. **API Endpoint**: Set to Ignatius.io production server
+2. **API Endpoint**: Set to GAB Platform production server
    ```javascript
    const SERVER_URL_PAGE = "https://api.ignatius.io";
    ```
@@ -452,7 +452,7 @@ Detailed console output for debugging:
 
 ## Contributing
 
-This tool is maintained for internal use within the NCDPS project. For issues or feature requests, please contact the development team.
+This tool is maintained for internal use within the GAB Platform. For issues or feature requests, please contact the development team.
 
 ## Security Notes
 
@@ -463,11 +463,11 @@ This tool is maintained for internal use within the NCDPS project. For issues or
 
 ## License
 
-Internal use only - NCDPS Project
+Internal use only - GAB Platform
 
 ---
 
-**Developed for:** North Carolina Department of Public Safety  
-**Platform:** Ignatius.io  
+**Developed for:** Internal Use  
+**Platform:** GAB Platform  
 **Last Updated:** November 2025
 
