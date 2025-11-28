@@ -659,22 +659,6 @@
                                                 <i class="bi bi-info-circle me-1"></i>
                                                 These forms are associated with the source table. You can review their structure in the next step.
                                             </small>
-                                            
-                                            <!-- Option to exclude HTML elements -->
-                                            <div class="mt-3">
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="excludeHtmlElementsCheck">
-                                                    <label class="form-check-label" for="excludeHtmlElementsCheck">
-                                                        <strong>Exclude HTML/Divider elements</strong>
-                                                        <br>
-                                                        <small class="text-muted">
-                                                            <i class="bi bi-lightbulb me-1"></i>
-                                                            Check this to skip all HTML text blocks and dividers from form duplication. 
-                                                            Useful for forms with large HTML content or embedded images. You can add HTML elements manually after duplication.
-                                                        </small>
-                                                    </label>
-                                                </div>
-                                            </div>
                                         </div>
                                         <div class="card-body">
                                             <div id="formsListContainer">
@@ -1492,16 +1476,6 @@
                 updateSelectedForms();
             });
             
-            // Add event handler for exclude HTML elements checkbox
-            $('#excludeHtmlElementsCheck').on('change', function() {
-                excludeHtmlElements = $(this).is(':checked');
-                if (excludeHtmlElements) {
-                    console.log('⚙️ HTML/Divider elements will be EXCLUDED from duplication');
-                } else {
-                    console.log('⚙️ HTML/Divider elements will be INCLUDED in duplication');
-                }
-            });
-            
             // Add event handlers for view structure buttons
             $('.view-form-structure-btn').on('click', function() {
                 const formKey = $(this).data('form-key');
@@ -1545,13 +1519,7 @@
          * Helper function to check if a field should be excluded from duplication
          */
         function shouldExcludeField(field) {
-            // Check if user wants to exclude HTML/Divider elements
-            if (excludeHtmlElements && field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER')) {
-                const elementType = field.DbFieldType === 'DIVIDER' ? 'Divider' : 'HTML';
-                return { excluded: true, reason: `${elementType} Element (User Excluded)` };
-            }
-            
-            // Design elements (HTML, DIVIDER) should be included by default
+            // Design elements (HTML, DIVIDER) should always be included
             if (field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER')) {
                 return { excluded: false, reason: null };
             }
@@ -2261,12 +2229,6 @@
 
             const tableName = $('#tableName').val().trim();
             const singularName = $('#singularName').val().trim();
-            
-            // Get user preference for excluding HTML elements
-            excludeHtmlElements = $('#excludeHtmlElementsCheck').is(':checked');
-            if (excludeHtmlElements) {
-                console.log('⚠️ User option: HTML/Divider elements will be EXCLUDED from form duplication');
-            }
 
             console.log('🚀 Starting table duplication process...');
             console.log(`   Source: ${sourceTableName} (${sourceTableKey}) from app ${sourceAppKey}`);
@@ -2801,13 +2763,6 @@
             // Special case: HTML/Design elements and Dividers (no FieldKey, IsStyleOption = true)
             if (column.IsStyleOption && (column.DbFieldType === 'HTML' || column.DbFieldType === 'DIVIDER')) {
                 const elementType = column.DbFieldType === 'DIVIDER' ? 'Divider' : 'HTML';
-                
-                // Check if user wants to exclude HTML elements
-                if (excludeHtmlElements) {
-                    console.log(`   ⏭️ Skipping design element (user excluded): ${column.Name} (${elementType})`);
-                    return null; // Skip this element
-                }
-                
                 console.log(`   🎨 Including design element: ${column.Name} (${elementType})`);
                 
                 // Debug: Log FormStyleOption
@@ -3171,23 +3126,9 @@
                 
                 console.log('   📏 Payload size:', (payloadString.length / 1024).toFixed(2), 'KB');
                 
-                // SAVE PAYLOAD TO FILE FOR INSPECTION
-                console.log('   💾 Saving payload to file for inspection...');
-                const prettyPayload = JSON.stringify(formPayload, null, 2);
-                const blob = new Blob([prettyPayload], {type: 'application/json'});
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `form-payload-${formPayload.Name.replace(/[^a-z0-9]/gi, '_')}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                console.log('   ✅ Payload saved! Check your downloads folder.');
-                
-                // Log a simplified console command as backup
-                console.log('   💾 Alternative: Run this in console to download payload:');
-                console.log(`   const blob = new Blob([${JSON.stringify(prettyPayload)}], {type: 'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'form-payload.json'; a.click();`);
+                // Log option to download payload for debugging
+                console.log('   💾 To download payload for inspection, run this in console:');
+                console.log('   const blob = new Blob([JSON.stringify(' + formPayload.Name + ', null, 2)], {type: "application/json"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "form-payload.json"; a.click();');
                 
                 $.ajax({
                     url: SERVER_URL_PAGE + '/api/Form',
