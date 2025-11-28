@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Table Duplicator - NCDPS</title>
+    <title>Table Duplicator - GAB Platform</title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -770,6 +770,7 @@
         let sourceTableKey = null;
         let sourceTableName = null;
         let sourceFields = [];
+        let customFieldsToDuplicate = []; // Store filtered fields that will actually be duplicated
         let fieldsDataTable = null;
         let fieldNameMappings = {}; // Store original -> new name mappings
         let fieldTypeMappings = {}; // Store original -> new type mappings
@@ -1082,6 +1083,9 @@
                         return true;
                     });
                     
+                    // Store globally for form comparison
+                    customFieldsToDuplicate = customFields;
+                    
                     const relationshipFields = sourceFields.filter(field => 
                         field.IsRelation || field.FieldName.toLowerCase().startsWith('related_') || field.FieldType === 'RELATIONSHIP'
                     );
@@ -1334,7 +1338,7 @@
                                 ${form.Description ? `<p class="mb-0 mt-2 small">${form.Description}</p>` : ''}
                             </div>
                             <div class="ms-3">
-                                <button class="btn btn-sm btn-outline-info view-form-structure-btn" 
+                                <button class="btn btn-sm btn-outline-primary view-form-structure-btn" 
                                         data-form-key="${form.Key}" 
                                         data-form-name="${form.Name}"
                                         title="View Form Structure">
@@ -1397,6 +1401,69 @@
         }
 
         /**
+         * Helper function to check if a field should be excluded from duplication
+         */
+        function shouldExcludeField(field) {
+            // Design elements (HTML, DIVIDER) should always be included
+            if (field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER')) {
+                return { excluded: false, reason: null };
+            }
+            
+            // First check: Is this field in the customFieldsToDuplicate list?
+            // This catches fields from related tables or any fields not in the source table
+            if (customFieldsToDuplicate.length > 0) {
+                const fieldKey = field.FieldKey || field.Key;
+                const fieldName = field.FieldName || field.Name;
+                
+                // Look for this field in customFieldsToDuplicate by Key or FieldName
+                const existsInSourceTable = customFieldsToDuplicate.some(sourceField => {
+                    return sourceField.Key === fieldKey || 
+                           sourceField.FieldKey === fieldKey ||
+                           sourceField.FieldName === fieldName ||
+                           sourceField.Name === fieldName;
+                });
+                
+                if (!existsInSourceTable) {
+                    // Check if it's a system field (those are auto-created, so not in the list)
+                    const defaultFields = ['id', 'datecreated', 'datemodified', 'createdby', 'modifiedby'];
+                    const isSystemField = defaultFields.includes(fieldKey?.toLowerCase()) || 
+                                         defaultFields.includes(fieldName?.toLowerCase());
+                    
+                    if (!isSystemField) {
+                        return { excluded: true, reason: 'Not in Source Table (Related/External Field)' };
+                    }
+                }
+            }
+            
+            // System fields
+            const defaultFields = ['id', 'datecreated', 'datemodified', 'createdby', 'modifiedby'];
+            if (defaultFields.includes(field.FieldKey?.toLowerCase()) || 
+                defaultFields.includes(field.FieldName?.toLowerCase())) {
+                return { excluded: true, reason: 'System Field' };
+            }
+            
+            // Relationship fields
+            if (field.IsRelation || 
+                field.FieldName?.toLowerCase().startsWith('related_') || 
+                field.FieldType === 'RELATIONSHIP' ||
+                field.DbFieldType === 'RELATIONSHIP') {
+                return { excluded: true, reason: 'Relationship Field' };
+            }
+            
+            // Lookup fields (contains table reference like tbl9721_)
+            if (/tbl\d+_/.test(field.FieldKey || field.FieldName || '')) {
+                return { excluded: true, reason: 'Lookup Field' };
+            }
+            
+            // Formula fields
+            if (field.IsFormulaField || field.IsFormula) {
+                return { excluded: true, reason: 'Formula Field' };
+            }
+            
+            return { excluded: false, reason: null };
+        }
+
+        /**
          * View form structure (loads detailed form data)
          */
         function viewFormStructure(formKey, formName) {
@@ -1405,12 +1472,12 @@
             // Show loading in a modal or new section
             const modalHtml = `
                 <div class="modal fade" id="formStructureModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header bg-primary text-white">
                                 <h5 class="modal-title">
                                     <i class="bi bi-diagram-3 me-2"></i>
-                                    Form Structure: ${formName}
+                                    Form Structure Comparison: ${formName}
                                 </h5>
                                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
@@ -1419,7 +1486,7 @@
                                     <div class="spinner-border text-primary" role="status">
                                         <span class="visually-hidden">Loading...</span>
                                     </div>
-                                    <p class="mt-3 text-muted">Loading form structure...</p>
+                                    <p class="mt-3 text-muted">Loading form structure and generating comparison...</p>
                                 </div>
                             </div>
                             <div class="modal-footer">
@@ -1453,6 +1520,7 @@
                 },
                 success: function(response) {
                     console.log('✅ Form structure loaded:', response);
+                    console.log(`🔍 Comparing against ${customFieldsToDuplicate.length} source table fields`);
                     displayFormStructure(response, formName);
                 },
                 error: function(xhr, status, error) {
@@ -1468,48 +1536,150 @@
         }
 
         /**
-         * Display form structure in modal
+         * Display form structure in modal with comparison view
          */
         function displayFormStructure(formData, formName) {
             const tabCount = formData.TabData ? formData.TabData.length : 0;
             const headerFieldCount = formData.HeaderFields ? formData.HeaderFields.length : 0;
             const embeddedReportCount = formData.EmbeddedReports ? formData.EmbeddedReports.length : 0;
             
+            // Count total fields and excluded fields
+            let totalFields = headerFieldCount;
+            let excludedFields = 0;
+            let excludedFieldsList = [];
+            
+            if (formData.HeaderFields) {
+                formData.HeaderFields.forEach(field => {
+                    const exclusion = shouldExcludeField(field);
+                    if (exclusion.excluded) {
+                        excludedFields++;
+                        excludedFieldsList.push({ name: field.Name, reason: exclusion.reason, location: 'Header' });
+                    }
+                });
+            }
+            
+            if (formData.TabData) {
+                formData.TabData.forEach(tab => {
+                    if (tab.Columns) {
+                        totalFields += tab.Columns.length;
+                        tab.Columns.forEach(field => {
+                            const exclusion = shouldExcludeField(field);
+                            if (exclusion.excluded) {
+                                excludedFields++;
+                                excludedFieldsList.push({ name: field.Name, reason: exclusion.reason, location: tab.Title });
+                            }
+                        });
+                    }
+                });
+            }
+            
+            const includedFields = totalFields - excludedFields;
+            
             let structureHtml = `
+                <!-- Comparison Summary Alert -->
+                <div class="alert ${excludedFields > 0 ? 'alert-info border-info' : 'alert-success'} mb-4" style="${excludedFields > 0 ? 'background-color: #e8f4f8; border-width: 2px;' : ''}">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-${excludedFields > 0 ? 'info-circle-fill' : 'check-circle-fill'} me-2" style="font-size: 1.5rem; color: ${excludedFields > 0 ? '#0c5460' : ''};"></i>
+                        <h6 class="mb-0" style="${excludedFields > 0 ? 'color: #0c5460;' : ''}">Field Duplication Summary</h6>
+                    </div>
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-4">
+                            <div class="card bg-white border-0 shadow-sm">
+                                <div class="card-body text-center">
+                                    <div class="h3 text-primary mb-1">${totalFields}</div>
+                                    <small class="text-muted">Total Fields in Form</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-white border-0 shadow-sm">
+                                <div class="card-body text-center">
+                                    <div class="h3 text-success mb-1">${includedFields}</div>
+                                    <small class="text-muted">Will Be Duplicated</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-white border-0 shadow-sm">
+                                <div class="card-body text-center">
+                                    <div class="h3 text-danger mb-1">${excludedFields}</div>
+                                    <small class="text-muted">Will Be Excluded</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    ${excludedFields > 0 ? `
+                        <div class="mt-3">
+                            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" 
+                                    data-bs-target="#excludedFieldsList" style="border-width: 2px;">
+                                <i class="bi bi-eye me-1"></i>
+                                View ${excludedFields} Excluded Field${excludedFields > 1 ? 's' : ''}
+                            </button>
+                            <div class="collapse mt-3" id="excludedFieldsList">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-striped mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Field Name</th>
+                                                <th>Reason</th>
+                                                <th>Location</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${excludedFieldsList.map(field => `
+                                                <tr>
+                                                    <td><strong>${field.name}</strong></td>
+                                                    <td><span class="badge bg-danger">${field.reason}</span></td>
+                                                    <td>${field.location}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <p class="mb-0 mt-2">
+                            <i class="bi bi-check-circle me-1"></i>
+                            All fields in this form will be duplicated successfully!
+                        </p>
+                    `}
+                </div>
+                
                 <div class="mb-4">
                     <h6 class="text-primary mb-3">
                         <i class="bi bi-info-circle me-2"></i>Form Overview
                     </h6>
                     <div class="row g-3">
                         <div class="col-md-3">
-                            <div class="card bg-light">
+                            <div class="card border-primary" style="background-color: #f0f7ff;">
                                 <div class="card-body text-center">
                                     <div class="display-6 text-primary">${tabCount}</div>
-                                    <small class="text-muted">Tabs</small>
+                                    <small class="text-muted fw-semibold">Tabs</small>
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-3">
-                            <div class="card bg-light">
+                            <div class="card border-primary" style="background-color: #f0f7ff;">
                                 <div class="card-body text-center">
                                     <div class="display-6 text-primary">${headerFieldCount}</div>
-                                    <small class="text-muted">Header Fields</small>
+                                    <small class="text-muted fw-semibold">Header Fields</small>
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-3">
-                            <div class="card bg-light">
+                            <div class="card border-primary" style="background-color: #f0f7ff;">
                                 <div class="card-body text-center">
                                     <div class="display-6 text-primary">${embeddedReportCount}</div>
-                                    <small class="text-muted">Embedded Reports</small>
+                                    <small class="text-muted fw-semibold">Embedded Reports</small>
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-3">
-                            <div class="card bg-light">
+                            <div class="card border-primary" style="background-color: #f0f7ff;">
                                 <div class="card-body text-center">
                                     <div class="display-6 text-primary">${formData.Type || 'web'}</div>
-                                    <small class="text-muted">Form Type</small>
+                                    <small class="text-muted fw-semibold">Form Type</small>
                                 </div>
                             </div>
                         </div>
@@ -1523,11 +1693,13 @@
                     <div class="mb-4">
                         <h6 class="text-primary mb-3">
                             <i class="bi bi-layout-text-window-reverse me-2"></i>Header Fields
+                            <span class="badge bg-secondary ms-2">${headerFieldCount} total</span>
                         </h6>
                         <div class="table-responsive">
                             <table class="table table-sm table-hover">
                                 <thead class="table-light">
                                     <tr>
+                                        <th>Status</th>
                                         <th>Field Name</th>
                                         <th>Field Type</th>
                                         <th>Display Position</th>
@@ -1537,10 +1709,22 @@
                 `;
                 
                 formData.HeaderFields.forEach(field => {
+                    const exclusion = shouldExcludeField(field);
+                    const isExcluded = exclusion.excluded;
+                    const rowClass = isExcluded ? 'table-danger' : '';
+                    const statusIcon = isExcluded ? 
+                        `<i class="bi bi-x-circle-fill text-danger" title="Will be excluded: ${exclusion.reason}"></i>` : 
+                        `<i class="bi bi-check-circle-fill text-success" title="Will be duplicated"></i>`;
+                    
+                    // Check if this is a design element
+                    const isDesignElement = field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER');
+                    const designBadge = isDesignElement ? ` <span class="badge bg-info">Design Element</span>` : '';
+                    
                     structureHtml += `
-                        <tr>
-                            <td><strong>${field.Name}</strong></td>
-                            <td><code>${field.FieldType}</code></td>
+                        <tr class="${rowClass}">
+                            <td class="text-center">${statusIcon}</td>
+                            <td><strong>${field.Name}</strong>${isExcluded ? ` <span class="badge bg-danger">${exclusion.reason}</span>` : designBadge}</td>
+                            <td><code>${field.FieldType || field.DbFieldType}</code></td>
                             <td>Row ${field.DisplayRowIndex}, Col ${field.DisplayColumnIndex}</td>
                         </tr>
                     `;
@@ -1559,13 +1743,25 @@
                 structureHtml += `
                     <div class="mb-4">
                         <h6 class="text-primary mb-3">
-                            <i class="bi bi-collection me-2"></i>Form Tabs & Fields
+                            <i class="bi bi-collection me-2"></i>Form Tabs & Fields (with Comparison)
                         </h6>
                         <div class="accordion" id="tabsAccordion">
                 `;
                 
                 formData.TabData.forEach((tab, tabIndex) => {
                     const fieldCount = tab.Columns ? tab.Columns.length : 0;
+                    let excludedCount = 0;
+                    
+                    // Count excluded fields in this tab
+                    if (tab.Columns) {
+                        tab.Columns.forEach(field => {
+                            if (shouldExcludeField(field).excluded) {
+                                excludedCount++;
+                            }
+                        });
+                    }
+                    
+                    const includedCount = fieldCount - excludedCount;
                     const accordionId = `tab${tabIndex}`;
                     
                     structureHtml += `
@@ -1574,7 +1770,13 @@
                                 <button class="accordion-button ${tabIndex > 0 ? 'collapsed' : ''}" type="button" 
                                         data-bs-toggle="collapse" data-bs-target="#${accordionId}">
                                     <strong>Tab ${tabIndex + 1}: ${tab.Title}</strong>
-                                    <span class="badge bg-primary ms-2">${fieldCount} fields</span>
+                                    <span class="badge bg-primary ms-2">${fieldCount} total</span>
+                                    ${excludedCount > 0 ? `
+                                        <span class="badge bg-success ms-1">${includedCount} will be duplicated</span>
+                                        <span class="badge bg-danger ms-1">${excludedCount} excluded</span>
+                                    ` : `
+                                        <span class="badge bg-success ms-1">All fields will be duplicated</span>
+                                    `}
                                 </button>
                             </h2>
                             <div id="${accordionId}" class="accordion-collapse collapse ${tabIndex === 0 ? 'show' : ''}" 
@@ -1588,6 +1790,7 @@
                                 <table class="table table-sm table-hover mb-0">
                                     <thead class="table-light">
                                         <tr>
+                                            <th>Status</th>
                                             <th>Field Name</th>
                                             <th>Type</th>
                                             <th>Position</th>
@@ -1598,9 +1801,27 @@
                         `;
                         
                         tab.Columns.forEach(field => {
+                            const exclusion = shouldExcludeField(field);
+                            const isExcluded = exclusion.excluded;
+                            const rowClass = isExcluded ? 'table-danger' : '';
+                            const statusIcon = isExcluded ? 
+                                `<i class="bi bi-x-circle-fill text-danger" title="Will be excluded: ${exclusion.reason}"></i>` : 
+                                `<i class="bi bi-check-circle-fill text-success" title="Will be duplicated"></i>`;
+                            
                             const settings = field.FormFieldSetting || {};
                             const badges = [];
                             
+                            // Check if this is a design element (HTML or DIVIDER)
+                            const isDesignElement = field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER');
+                            
+                            if (isDesignElement) {
+                                const designType = field.DbFieldType === 'DIVIDER' ? 'Divider' : 'HTML';
+                                badges.push(`<span class="badge bg-info">Design Element (${designType})</span>`);
+                            }
+                            
+                            if (isExcluded) {
+                                badges.push(`<span class="badge bg-danger">${exclusion.reason}</span>`);
+                            }
                             if (settings.Required) badges.push('<span class="badge bg-danger">Required</span>');
                             if (settings.Hidden) badges.push('<span class="badge bg-secondary">Hidden</span>');
                             if (settings.Readonly) badges.push('<span class="badge bg-warning">Read-only</span>');
@@ -1608,7 +1829,8 @@
                             if (field.IsSummaryField) badges.push('<span class="badge bg-success">Summary</span>');
                             
                             structureHtml += `
-                                <tr>
+                                <tr class="${rowClass}">
+                                    <td class="text-center">${statusIcon}</td>
                                     <td><strong>${field.Name}</strong></td>
                                     <td><code>${field.DbFieldType || field.FieldType}</code></td>
                                     <td>Row ${field.DisplayRowIndex}, Col ${field.DisplayColumnIndex}</td>
@@ -1675,6 +1897,47 @@
                     </div>
                 `;
             }
+            
+            // Legend for color coding
+            structureHtml += `
+                <div class="mb-4">
+                    <h6 class="text-secondary mb-3">
+                        <i class="bi bi-info-square me-2"></i>Legend
+                    </h6>
+                    <div class="card border-secondary">
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                        <span><strong>Green checkmark:</strong> Field will be duplicated</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-x-circle-fill text-danger me-2"></i>
+                                        <span><strong>Red X:</strong> Field will be excluded (see reason badge)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <small class="text-muted">
+                                    <i class="bi bi-lightbulb me-1"></i>
+                                    <strong>Tip:</strong> Red highlighted rows indicate fields that won't be created in the new table. 
+                                    Common reasons include: System Fields (automatically created), Relationship Fields (require other tables), 
+                                    Formula Fields (may have dependencies), and Lookup Fields (reference external tables).
+                                </small>
+                            </div>
+                            <div class="mt-2">
+                                <small class="text-success">
+                                    <i class="bi bi-check2-circle me-1"></i>
+                                    <strong>Design Elements:</strong> HTML and Divider elements <span class="badge bg-info">Design Element</span> will always be duplicated as they don't depend on table fields.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
             
             // Raw JSON Section (for technical mode)
             structureHtml += `
@@ -2247,9 +2510,10 @@
          * Transform a form column (field) to use new field key
          */
         function transformFormColumn(column, targetTableKey) {
-            // Special case: HTML/Design elements (no FieldKey, IsStyleOption = true)
-            if (column.IsStyleOption && column.DbFieldType === 'HTML') {
-                console.log(`   🎨 Including design element: ${column.Name} (HTML)`);
+            // Special case: HTML/Design elements and Dividers (no FieldKey, IsStyleOption = true)
+            if (column.IsStyleOption && (column.DbFieldType === 'HTML' || column.DbFieldType === 'DIVIDER')) {
+                const elementType = column.DbFieldType === 'DIVIDER' ? 'Divider' : 'HTML';
+                console.log(`   🎨 Including design element: ${column.Name} (${elementType})`);
                 return {
                     ApplicationTableKey: targetTableKey, // Use the new table key
                     FieldKey: "", // Design elements have empty FieldKey
@@ -2269,7 +2533,7 @@
                     LinkText: column.LinkText || "",
                     FormStyleOption: column.FormStyleOption ? {
                         Name: column.FormStyleOption.Name,
-                        Type: column.FormStyleOption.Type || "HTML",
+                        Type: column.FormStyleOption.Type || column.DbFieldType, // Use DbFieldType as fallback
                         TextAlignment: column.FormStyleOption.TextAlignment || "left",
                         EvaluateTab: column.FormStyleOption.EvaluateTab || false,
                         TextColor: column.FormStyleOption.TextColor || "",

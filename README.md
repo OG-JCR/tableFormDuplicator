@@ -13,13 +13,20 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
 - **Form Duplication**: Copy forms with complete layout preservation including:
   - Multiple tabs with custom layouts
   - Header fields
-  - Design elements (HTML/style options)
+  - Design elements (HTML elements and Dividers)
   - FormRules with conditional logic
+- **Form Structure Comparison**: Interactive preview showing what will be duplicated:
+  - Side-by-side comparison of original vs. expected form structure
+  - Visual indicators for included/excluded fields
+  - Dynamic validation against source table fields
+  - Identifies fields from related tables that won't be copied
+  - Summary statistics with detailed exclusion reasons
 - **Smart Field Filtering**: Automatically excludes:
   - System fields (id, datecreated, datemodified, createdby, modifiedby)
   - Relationship fields
   - Formula fields
   - Lookup fields (external table references)
+  - Fields from related tables not being duplicated
 - **Interactive Field Editor**: Edit field names and types before duplication
 - **Selective Form Duplication**: Choose which forms to duplicate via checkboxes
 
@@ -27,6 +34,8 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
 
 - **Field Key Remapping**: Automatically maps old field keys to new field keys for form integrity
 - **FormRules Support**: Preserves conditional show/hide/require logic
+- **Design Element Support**: Full support for HTML and DIVIDER elements with style preservation
+- **Dynamic Field Validation**: Cross-references form fields with source table to identify missing dependencies
 - **External Dependency Handling**: Intelligently excludes features requiring external resources:
   - EmbeddedReports (reference other tables)
   - EmbeddedForms (reference other tables)
@@ -34,6 +43,7 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
 - **Dropdown Value Preservation**: Fetches and copies ENUM/ENUM2 field options
 - **Payload Validation**: Built-in validation to catch common API issues
 - **Technical Mode**: Toggle to show/hide API testing tools
+- **Professional UI**: Clean, accessible color scheme optimized for readability
 
 ## Installation & Setup
 
@@ -75,7 +85,12 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
 3. **Select Forms (Optional)**
    - Review available forms in the source table
    - Check the boxes next to forms you want to duplicate
-   - Click "View Structure" to inspect form details
+   - Click "View Structure" to inspect form details and see comparison:
+     - Green checkmarks (✓) indicate fields that will be duplicated
+     - Red X marks (✗) indicate fields that will be excluded
+     - View detailed exclusion reasons (relationship fields, formulas, etc.)
+     - See summary statistics of included vs. excluded fields
+     - Identify fields from related tables that won't be copied
 
 4. **Configure Destination**
    - Enter Destination Application Key
@@ -108,6 +123,33 @@ The tool supports conversion between these field types:
 | `PHONE` | Phone | Phone number |
 | `URL` | URL | Web address |
 
+### Form Structure Comparison
+
+The tool provides a comprehensive form comparison feature that shows exactly what will be duplicated:
+
+#### Visual Indicators
+- **✓ Green Checkmark**: Field will be successfully duplicated
+- **✗ Red X**: Field will be excluded with reason badge
+- **Blue Info Badge**: Design elements (HTML/Divider) that will be included
+
+#### Summary Statistics
+- Total fields in the original form
+- Number of fields that will be duplicated
+- Number of fields that will be excluded
+- Expandable list showing all excluded fields with reasons
+
+#### Exclusion Reasons
+- **System Field**: Auto-created fields (id, datecreated, etc.)
+- **Relationship Field**: Fields linking to other tables
+- **Formula Field**: Calculated fields with potential dependencies  
+- **Lookup Field**: Fields referencing external table data
+- **Not in Source Table**: Fields from related tables (e.g., "Applicant - Name" from related Applicants table)
+
+#### Design Elements
+- **HTML Elements**: Text blocks, headers, custom styling - always duplicated
+- **Dividers**: Visual separators - always duplicated
+- Both preserve positioning, styling, and content
+
 ## Technical Architecture
 
 ### Form Transformation Pipeline
@@ -133,6 +175,8 @@ Source Form → Load Structure → Transform → Validate → Create
 - **`createFormInTable(sourceFormKey, targetTableKey)`**: Orchestrates form creation
 - **`loadFormStructureForDuplication(formKey)`**: Loads complete form structure
 - **`transformFormStructure(sourceForm, targetTableKey)`**: Main transformation function
+- **`shouldExcludeField(field)`**: Validates if a field should be excluded from duplication
+- **`displayFormStructure(formData, formName)`**: Renders form comparison view with exclusion analysis
 
 #### Form Transformation Functions
 
@@ -441,7 +485,14 @@ Detailed console output for debugging:
 
 ## Version History
 
-### v1.0.0 (Current)
+### v1.1.0 (Current - November 2025)
+- **Form Structure Comparison**: Interactive preview with visual indicators for included/excluded fields
+- **Dynamic Field Validation**: Cross-references form fields against source table
+- **Divider Support**: Full support for DIVIDER design elements alongside HTML elements
+- **Professional UI Updates**: Improved color scheme for better readability and accessibility
+- **Enhanced Exclusion Detection**: Identifies fields from related tables that won't be copied
+
+### v1.0.0 (Initial Release)
 - Initial release
 - Table structure duplication
 - Field mapping and transformation
