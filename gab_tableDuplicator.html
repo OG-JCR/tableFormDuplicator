@@ -94,18 +94,48 @@
         /* Loading Spinner */
         .loading-spinner {
             display: none;
-            text-align: center;
-            padding: 40px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            min-height: 100vh;
         }
 
-        .spinner {
+        .progress-steps {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .progress-step {
+            transition: all 0.3s ease;
+        }
+
+        .step-icon {
             width: 40px;
             height: 40px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #2c5aa0;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+
+        .step-icon.active {
+            background-color: #e7f3ff;
+            border-color: #2c5aa0;
+            color: #2c5aa0;
+        }
+
+        .step-icon.complete {
+            background-color: #d1f2dd;
+            border-color: #28a745;
+            color: #28a745;
+        }
+
+        .step-icon.error {
+            background-color: #ffe5e5;
+            border-color: #dc3545;
+            color: #dc3545;
         }
 
         @keyframes spin {
@@ -629,6 +659,22 @@
                                                 <i class="bi bi-info-circle me-1"></i>
                                                 These forms are associated with the source table. You can review their structure in the next step.
                                             </small>
+                                            
+                                            <!-- Option to exclude HTML elements -->
+                                            <div class="mt-3">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="excludeHtmlElementsCheck">
+                                                    <label class="form-check-label" for="excludeHtmlElementsCheck">
+                                                        <strong>Exclude HTML/Divider elements</strong>
+                                                        <br>
+                                                        <small class="text-muted">
+                                                            <i class="bi bi-lightbulb me-1"></i>
+                                                            Check this to skip all HTML text blocks and dividers from form duplication. 
+                                                            Useful for forms with large HTML content or embedded images. You can add HTML elements manually after duplication.
+                                                        </small>
+                                                    </label>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div class="card-body">
                                             <div id="formsListContainer">
@@ -708,10 +754,94 @@
                 </div>
             </div>
 
-            <!-- Loading Section -->
+            <!-- Loading Section with Progress Tracker -->
             <div class="loading-spinner" id="loadingSpinner">
-                <div class="spinner"></div>
-                <p>Processing your request...</p>
+                <div class="container py-5">
+                    <div class="card border-0 shadow-lg">
+                        <div class="card-body p-5">
+                            <div class="text-center mb-4">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <h4 class="mt-3 text-primary">Duplicating Table</h4>
+                                <p class="text-muted mb-0" id="loadingMessage">Initializing...</p>
+                            </div>
+                            
+                            <!-- Progress Steps -->
+                            <div class="progress-steps mt-4">
+                                <!-- Step 1: Create Table -->
+                                <div class="progress-step" id="step1">
+                                    <div class="d-flex align-items-center">
+                                        <div class="step-icon" id="step1-icon">
+                                            <div class="spinner-border spinner-border-sm" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                        </div>
+                                        <div class="flex-grow-1 ms-3">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="fw-semibold">Creating new table</span>
+                                                <span class="badge bg-secondary" id="step1-badge">Pending</span>
+                                            </div>
+                                            <small class="text-muted" id="step1-detail">Waiting to start...</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Step 2: Duplicate Fields -->
+                                <div class="progress-step mt-3" id="step2">
+                                    <div class="d-flex align-items-center">
+                                        <div class="step-icon text-muted" id="step2-icon">
+                                            <i class="bi bi-circle"></i>
+                                        </div>
+                                        <div class="flex-grow-1 ms-3">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="fw-semibold">Duplicating fields</span>
+                                                <span class="badge bg-secondary" id="step2-badge">Pending</span>
+                                            </div>
+                                            <small class="text-muted" id="step2-detail">Waiting for table creation...</small>
+                                            <div class="progress mt-2" style="height: 6px; display: none;" id="step2-progress-bar">
+                                                <div class="progress-bar" role="progressbar" style="width: 0%;" id="step2-progress"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Step 3: Duplicate Forms -->
+                                <div class="progress-step mt-3" id="step3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="step-icon text-muted" id="step3-icon">
+                                            <i class="bi bi-circle"></i>
+                                        </div>
+                                        <div class="flex-grow-1 ms-3">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="fw-semibold">Duplicating forms</span>
+                                                <span class="badge bg-secondary" id="step3-badge">Pending</span>
+                                            </div>
+                                            <small class="text-muted" id="step3-detail">Waiting for fields...</small>
+                                            <div class="progress mt-2" style="height: 6px; display: none;" id="step3-progress-bar">
+                                                <div class="progress-bar" role="progressbar" style="width: 0%;" id="step3-progress"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Overall Progress -->
+                            <div class="mt-4">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="text-muted">Overall Progress</small>
+                                    <small class="text-muted"><span id="overallPercent">0</span>%</small>
+                                </div>
+                                <div class="progress" style="height: 10px;">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                         role="progressbar" 
+                                         style="width: 0%;" 
+                                         id="overallProgress"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Success Section -->
@@ -777,6 +907,7 @@
         let selectedFormsForDuplication = []; // Store selected forms to duplicate
         let fieldKeyMapping = {}; // Maps source field keys to new field keys: {sourceKey: newKey}
         let sourceForms = []; // Store all forms from source table
+        let excludeHtmlElements = false; // Flag to exclude HTML/Divider elements from forms
         
         let destAppId = null;
         let destAppKey = null;
@@ -1361,6 +1492,16 @@
                 updateSelectedForms();
             });
             
+            // Add event handler for exclude HTML elements checkbox
+            $('#excludeHtmlElementsCheck').on('change', function() {
+                excludeHtmlElements = $(this).is(':checked');
+                if (excludeHtmlElements) {
+                    console.log('⚙️ HTML/Divider elements will be EXCLUDED from duplication');
+                } else {
+                    console.log('⚙️ HTML/Divider elements will be INCLUDED in duplication');
+                }
+            });
+            
             // Add event handlers for view structure buttons
             $('.view-form-structure-btn').on('click', function() {
                 const formKey = $(this).data('form-key');
@@ -1404,7 +1545,13 @@
          * Helper function to check if a field should be excluded from duplication
          */
         function shouldExcludeField(field) {
-            // Design elements (HTML, DIVIDER) should always be included
+            // Check if user wants to exclude HTML/Divider elements
+            if (excludeHtmlElements && field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER')) {
+                const elementType = field.DbFieldType === 'DIVIDER' ? 'Divider' : 'HTML';
+                return { excluded: true, reason: `${elementType} Element (User Excluded)` };
+            }
+            
+            // Design elements (HTML, DIVIDER) should be included by default
             if (field.IsStyleOption && (field.DbFieldType === 'HTML' || field.DbFieldType === 'DIVIDER')) {
                 return { excluded: false, reason: null };
             }
@@ -2028,6 +2175,83 @@
         }
 
         /**
+         * Update progress UI helper functions
+         */
+        function updateProgressStep(stepNum, status, detail, progress = null) {
+            const icon = $(`#step${stepNum}-icon`);
+            const badge = $(`#step${stepNum}-badge`);
+            const detailEl = $(`#step${stepNum}-detail`);
+            const progressBar = $(`#step${stepNum}-progress-bar`);
+            const progressFill = $(`#step${stepNum}-progress`);
+            
+            // Update detail text
+            if (detail) detailEl.text(detail);
+            
+            // Update icon and badge based on status
+            if (status === 'active') {
+                icon.removeClass('complete error text-muted').addClass('active');
+                icon.html('<div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div>');
+                badge.removeClass('bg-secondary bg-success bg-danger').addClass('bg-primary').text('In Progress');
+            } else if (status === 'complete') {
+                icon.removeClass('active error text-muted').addClass('complete');
+                icon.html('<i class="bi bi-check-lg"></i>');
+                badge.removeClass('bg-secondary bg-primary bg-danger').addClass('bg-success').text('Complete');
+            } else if (status === 'error') {
+                icon.removeClass('active complete text-muted').addClass('error');
+                icon.html('<i class="bi bi-x-lg"></i>');
+                badge.removeClass('bg-secondary bg-primary bg-success').addClass('bg-danger').text('Failed');
+            } else if (status === 'pending') {
+                icon.removeClass('active complete error').addClass('text-muted');
+                icon.html('<i class="bi bi-circle"></i>');
+                badge.removeClass('bg-primary bg-success bg-danger').addClass('bg-secondary').text('Pending');
+            }
+            
+            // Update progress bar if applicable
+            if (progress !== null && progressBar.length) {
+                progressBar.show();
+                progressFill.css('width', progress + '%');
+            }
+        }
+        
+        function updateOverallProgress(percent) {
+            $('#overallProgress').css('width', percent + '%');
+            $('#overallPercent').text(Math.round(percent));
+        }
+        
+        function updateLoadingMessage(message) {
+            $('#loadingMessage').text(message);
+        }
+
+        /**
+         * Strip base64 images from HTML content to reduce payload size
+         * Base64 images can make payloads exceed API limits (1-4 MB)
+         */
+        function stripBase64Images(html) {
+            if (!html || typeof html !== 'string') return html;
+            
+            // Count how many base64 images we're removing
+            const base64ImageRegex = /<img[^>]+src=["']data:image\/[^;]+;base64,[^"']+["'][^>]*>/gi;
+            const matches = html.match(base64ImageRegex);
+            const imageCount = matches ? matches.length : 0;
+            
+            if (imageCount > 0) {
+                console.log(`   🖼️ Stripping ${imageCount} base64 image(s) to reduce payload size`);
+                
+                // Replace base64 images with a placeholder
+                const cleaned = html.replace(base64ImageRegex, '<p style="color: #999; font-style: italic;">[Image removed during duplication - please re-add if needed]</p>');
+                
+                // Calculate size reduction
+                const originalSize = (html.length / 1024).toFixed(2);
+                const newSize = (cleaned.length / 1024).toFixed(2);
+                console.log(`   📉 Size reduced: ${originalSize} KB → ${newSize} KB (saved ${(originalSize - newSize).toFixed(2)} KB)`);
+                
+                return cleaned;
+            }
+            
+            return html;
+        }
+
+        /**
          * Handle duplicate table - main orchestration function
          */
         async function handleDuplicateTable() {
@@ -2037,22 +2261,39 @@
 
             const tableName = $('#tableName').val().trim();
             const singularName = $('#singularName').val().trim();
+            
+            // Get user preference for excluding HTML elements
+            excludeHtmlElements = $('#excludeHtmlElementsCheck').is(':checked');
+            if (excludeHtmlElements) {
+                console.log('⚠️ User option: HTML/Divider elements will be EXCLUDED from form duplication');
+            }
 
             console.log('🚀 Starting table duplication process...');
             console.log(`   Source: ${sourceTableName} (${sourceTableKey}) from app ${sourceAppKey}`);
             console.log(`   Destination: New table "${tableName}" in app ${destAppName} (ID: ${destAppId})`);
 
-            // Show loading
+            // Show loading with progress UI
             $('#formSection').hide();
             $('#loadingSpinner').show();
+            
+            // Initialize progress
+            updateLoadingMessage('Starting duplication process...');
+            updateOverallProgress(0);
 
             try {
                 // Step 1: Create new table
+                updateProgressStep(1, 'active', 'Creating new table structure...');
+                updateLoadingMessage('Creating new table...');
+                updateOverallProgress(10);
+                
                 console.log('📝 Step 1: Creating new table...');
                 const newTable = await createTableInDestination(tableName, singularName);
                 console.log('✅ New table created:', newTable);
                 console.log(`   Table ID: ${newTable.Id}`);
                 console.log(`   Table Key: ${newTable.Key}`);
+                
+                updateProgressStep(1, 'complete', `Table created: ${tableName}`);
+                updateOverallProgress(20);
 
                 // Step 2: Filter out default fields, relationship fields, formula fields, and lookup fields
                 const defaultFields = ['id', 'datecreated', 'datemodified', 'createdby', 'modifiedby'];
@@ -2085,6 +2326,10 @@
                 
                 const skippedCount = sourceFields.length - customFields.length - 5;
                 console.log(`📝 Step 2: Duplicating ${customFields.length} custom fields (${skippedCount} fields skipped: relationships + formulas + lookups)...`);
+                
+                // Start Step 2: Fields
+                updateProgressStep(2, 'active', `Duplicating ${customFields.length} fields...`);
+                updateLoadingMessage(`Creating fields... (0/${customFields.length})`);
 
                 // Step 3: Create each field
                 const fieldResults = [];
@@ -2097,6 +2342,12 @@
                         fieldTypeDisplay = `${field.FieldType} (Multi-Select)`;
                     }
                     console.log(`   Creating field ${i + 1}/${customFields.length}: ${field.Name} (${fieldTypeDisplay})`);
+                    
+                    // Update progress
+                    const fieldProgress = ((i + 1) / customFields.length) * 100;
+                    updateProgressStep(2, 'active', `Creating field: ${field.Name} (${i + 1}/${customFields.length})`, fieldProgress);
+                    updateLoadingMessage(`Creating fields... (${i + 1}/${customFields.length})`);
+                    updateOverallProgress(20 + (fieldProgress * 0.5)); // Fields are 50% of overall progress
                     
                     try {
                         const result = await createFieldInTable(field, newTable.Key);
@@ -2133,16 +2384,33 @@
                 if (failCount > 0) {
                     console.log(`   ❌ Failed: ${failCount} fields`);
                 }
+                
+                // Complete Step 2
+                if (failCount > 0) {
+                    updateProgressStep(2, 'complete', `${successCount} fields created, ${failCount} failed`);
+                } else {
+                    updateProgressStep(2, 'complete', `All ${successCount} fields created successfully`);
+                }
+                updateOverallProgress(70);
 
                 // Step 4: Create forms if any are selected
                 const formResults = [];
                 if (selectedFormsForDuplication.length > 0) {
+                    updateProgressStep(3, 'active', `Duplicating ${selectedFormsForDuplication.length} forms...`);
+                    updateLoadingMessage(`Creating forms... (0/${selectedFormsForDuplication.length})`);
+                    
                     console.log(`📝 Step 4: Duplicating ${selectedFormsForDuplication.length} form(s)...`);
                     console.log('   ℹ️ Note: FormRules will be included. EmbeddedReports/EmbeddedForms excluded (reference external tables)');
                     
                     for (let i = 0; i < selectedFormsForDuplication.length; i++) {
                         const selectedForm = selectedFormsForDuplication[i];
                         console.log(`   Creating form ${i + 1}/${selectedFormsForDuplication.length}: ${selectedForm.name}`);
+                        
+                        // Update progress
+                        const formProgress = ((i + 1) / selectedFormsForDuplication.length) * 100;
+                        updateProgressStep(3, 'active', `Creating form: ${selectedForm.name} (${i + 1}/${selectedFormsForDuplication.length})`, formProgress);
+                        updateLoadingMessage(`Creating forms... (${i + 1}/${selectedFormsForDuplication.length})`);
+                        updateOverallProgress(70 + (formProgress * 0.3)); // Forms are 30% of overall progress
                         
                         try {
                             const result = await createFormInTable(selectedForm.key, newTable.Key);
@@ -2161,20 +2429,40 @@
                     if (formFailCount > 0) {
                         console.log(`   ❌ Failed: ${formFailCount} forms`);
                     }
+                    
+                    // Complete Step 3
+                    if (formFailCount > 0) {
+                        updateProgressStep(3, 'complete', `${formSuccessCount} forms created, ${formFailCount} failed`);
+                    } else {
+                        updateProgressStep(3, 'complete', `All ${formSuccessCount} forms created successfully`);
+                    }
                 } else {
                     console.log('ℹ️ No forms selected for duplication, skipping form creation.');
+                    updateProgressStep(3, 'complete', 'No forms selected (skipped)');
                 }
 
                 console.log('🎉 Duplication complete!');
+                updateOverallProgress(100);
+                updateLoadingMessage('Duplication complete!');
+
+                // Small delay to show 100% completion
+                await new Promise(resolve => setTimeout(resolve, 500));
 
                 $('#loadingSpinner').hide();
                 showDuplicationSuccess(tableName, singularName, newTable, fieldResults, formResults);
 
             } catch (error) {
                 console.error('❌ Error during duplication:', error);
+                
+                // Mark current step as failed
+                updateLoadingMessage('An error occurred during duplication');
+                
+                // Show error state
+                setTimeout(() => {
                 $('#loadingSpinner').hide();
                 $('#formSection').show();
                 alert('Failed to duplicate table: ' + error);
+                }, 1000);
             }
         }
 
@@ -2513,7 +2801,33 @@
             // Special case: HTML/Design elements and Dividers (no FieldKey, IsStyleOption = true)
             if (column.IsStyleOption && (column.DbFieldType === 'HTML' || column.DbFieldType === 'DIVIDER')) {
                 const elementType = column.DbFieldType === 'DIVIDER' ? 'Divider' : 'HTML';
+                
+                // Check if user wants to exclude HTML elements
+                if (excludeHtmlElements) {
+                    console.log(`   ⏭️ Skipping design element (user excluded): ${column.Name} (${elementType})`);
+                    return null; // Skip this element
+                }
+                
                 console.log(`   🎨 Including design element: ${column.Name} (${elementType})`);
+                
+                // Debug: Log FormStyleOption
+                if (column.FormStyleOption) {
+                    console.log(`   🔍 DEBUG: FormStyleOption for ${column.Name}:`, column.FormStyleOption);
+                    if (column.FormStyleOption.Icon) {
+                        console.log(`      Icon type: ${typeof column.FormStyleOption.Icon}`);
+                        console.log(`      Icon value:`, column.FormStyleOption.Icon);
+                    }
+                }
+                
+                // Debug: Log FormFieldSetting
+                if (column.FormFieldSetting) {
+                    console.log(`   🔍 DEBUG: FormFieldSetting for ${column.Name}:`);
+                    if (column.FormFieldSetting.DefaultValue !== null && column.FormFieldSetting.DefaultValue !== undefined) {
+                        console.log(`      DefaultValue type: ${typeof column.FormFieldSetting.DefaultValue}`);
+                        console.log(`      DefaultValue value:`, column.FormFieldSetting.DefaultValue);
+                    }
+                }
+                
                 return {
                     ApplicationTableKey: targetTableKey, // Use the new table key
                     FieldKey: "", // Design elements have empty FieldKey
@@ -2538,7 +2852,22 @@
                         EvaluateTab: column.FormStyleOption.EvaluateTab || false,
                         TextColor: column.FormStyleOption.TextColor || "",
                         ButtonColor: column.FormStyleOption.ButtonColor || "",
-                        Icon: column.FormStyleOption.Icon || "",
+                        Icon: (() => {
+                            // Handle Icon carefully - it might contain SVG content
+                            const icon = column.FormStyleOption.Icon;
+                            if (!icon) return "";
+                            
+                            // Debug logging
+                            if (typeof icon === 'string' && icon.includes('<svg')) {
+                                console.log(`   🔍 Processing Icon with SVG (type: ${typeof icon})`);
+                                console.log(`      Original icon: ${icon.substring(0, 150)}...`);
+                            }
+                            
+                            // If it's already a string, return as-is
+                            if (typeof icon === 'string') return icon;
+                            // If it's an object, stringify it once
+                            return JSON.stringify(icon);
+                        })(),
                         IsIcon: column.FormStyleOption.IsIcon || null,
                         IconColor: column.FormStyleOption.IconColor || null,
                         IsSaveAndExit: column.FormStyleOption.IsSaveAndExit || false,
@@ -2657,7 +2986,44 @@
                 FileSize: setting.FileSize || null,
                 RestrictChoices: setting.RestrictChoices || false,
                 FormFieldValue: setting.FormFieldValue || 0,
-                DefaultValue: setting.DefaultValue || null, // IMPORTANT: Preserves HTML for design elements
+                DefaultValue: (() => {
+                    // Handle DefaultValue carefully to avoid double-escaping HTML/SVG content
+                    if (setting.DefaultValue === null || setting.DefaultValue === undefined) {
+                        return null;
+                    }
+                    
+                    let value = setting.DefaultValue;
+                    
+                    // Debug logging
+                    if (typeof value === 'string' && (value.includes('<svg') || value.includes('<img') || value.includes('<p'))) {
+                        console.log(`   🔍 Processing DefaultValue with HTML (type: ${typeof value})`);
+                        console.log(`      Length: ${value.length} chars`);
+                        console.log(`      First 200 chars: ${value.substring(0, 200)}`);
+                    }
+                    
+                    // If it's a string, check if it's already JSON-stringified
+                    if (typeof value === 'string') {
+                        // Try to detect if it's a JSON string (starts and ends with quotes, has escaped content)
+                        if (value.startsWith('"') && value.endsWith('"') && value.includes('\\')) {
+                            try {
+                                // It's a JSON string, parse it to get the actual HTML
+                                value = JSON.parse(value);
+                                console.log(`   ℹ️ Detected and un-escaped JSON-stringified DefaultValue`);
+                            } catch (e) {
+                                // If parsing fails, use as-is
+                                console.warn(`   ⚠️ Failed to parse DefaultValue as JSON:`, e);
+                            }
+                        }
+                        
+                        // Strip base64 images to prevent massive payloads
+                        value = stripBase64Images(value);
+                        
+                        return value;
+                    }
+                    
+                    // If it's an object, stringify it once
+                    return JSON.stringify(value);
+                })(),
                 HasDefaultValue: setting.HasDefaultValue || false,
                 MaintainLastValue: setting.MaintainLastValue || false,
                 IncludeInfoText: setting.IncludeInfoText !== undefined ? setting.IncludeInfoText : false,
@@ -2721,6 +3087,41 @@
                 console.log('   🧹 Cleaning undefined values from payload...');
                 formPayload = cleanUndefinedValues(formPayload);
                 
+                // STRIP BASE64 IMAGES: Recursively strip all base64 images from the entire payload
+                console.log('   🖼️ Stripping base64 images from entire form payload...');
+                let totalImagesStripped = 0;
+                
+                function stripBase64FromPayload(obj) {
+                    if (!obj || typeof obj !== 'object') return obj;
+                    
+                    if (Array.isArray(obj)) {
+                        return obj.map(item => stripBase64FromPayload(item));
+                    }
+                    
+                    const cleaned = {};
+                    Object.keys(obj).forEach(key => {
+                        let value = obj[key];
+                        
+                        // If it's a string that might contain HTML
+                        if (typeof value === 'string' && (key === 'DefaultValue' || value.includes('<img'))) {
+                            const before = value.length;
+                            value = stripBase64Images(value);
+                            const after = value.length;
+                            if (before !== after) {
+                                totalImagesStripped++;
+                            }
+                        } else if (typeof value === 'object') {
+                            value = stripBase64FromPayload(value);
+                        }
+                        
+                        cleaned[key] = value;
+                    });
+                    return cleaned;
+                }
+                
+                formPayload = stripBase64FromPayload(formPayload);
+                console.log(`   ✅ Total base64 images stripped from payload: ${totalImagesStripped}`);
+                
                 // VALIDATION: Check for problematic data
                 console.log('   🔍 Validating form payload...');
                 const validationIssues = validateFormPayload(formPayload);
@@ -2737,13 +3138,55 @@
                 console.log(`   📋 Form summary: ${totalTabs} tab(s), ${totalFields} field(s)`);
                 console.log('   📤 Sending form payload:', formPayload);
                 
-                // Create compact JSON string (no pretty printing for actual send)
+                // DEBUG: Check for double-escaped SVG in payload
                 const payloadString = JSON.stringify(formPayload);
+                if (payloadString.includes('\\\\\\')) {
+                    console.warn('   ⚠️ WARNING: Found triple-escaped content in payload!');
+                    console.warn('   This might cause SVG rendering issues.');
+                    
+                    // Find which fields have the issue
+                    if (formPayload.TabData) {
+                        formPayload.TabData.forEach((tab, tabIdx) => {
+                            if (tab.Columns) {
+                                tab.Columns.forEach((col, colIdx) => {
+                                    const colString = JSON.stringify(col);
+                                    if (colString.includes('\\\\\\')) {
+                                        console.warn(`   🔍 Found in Tab ${tabIdx + 1}, Column ${colIdx + 1} (${col.Name})`);
+                                        if (col.FormStyleOption?.Icon && JSON.stringify(col.FormStyleOption.Icon).includes('\\\\\\')) {
+                                            console.warn(`      - Issue in FormStyleOption.Icon`);
+                                            console.warn(`      - Icon type: ${typeof col.FormStyleOption.Icon}`);
+                                            console.warn(`      - Icon value: ${JSON.stringify(col.FormStyleOption.Icon).substring(0, 150)}...`);
+                                        }
+                                        if (col.FormFieldSetting?.DefaultValue && JSON.stringify(col.FormFieldSetting.DefaultValue).includes('\\\\\\')) {
+                                            console.warn(`      - Issue in FormFieldSetting.DefaultValue`);
+                                            console.warn(`      - DefaultValue type: ${typeof col.FormFieldSetting.DefaultValue}`);
+                                            console.warn(`      - DefaultValue value: ${JSON.stringify(col.FormFieldSetting.DefaultValue).substring(0, 150)}...`);
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    }
+                }
+                
                 console.log('   📏 Payload size:', (payloadString.length / 1024).toFixed(2), 'KB');
                 
-                // Log a download link for the full payload (for debugging) - pretty printed version
+                // SAVE PAYLOAD TO FILE FOR INSPECTION
+                console.log('   💾 Saving payload to file for inspection...');
                 const prettyPayload = JSON.stringify(formPayload, null, 2);
-                console.log('   💾 To download full payload for inspection, run this in console:');
+                const blob = new Blob([prettyPayload], {type: 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `form-payload-${formPayload.Name.replace(/[^a-z0-9]/gi, '_')}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                console.log('   ✅ Payload saved! Check your downloads folder.');
+                
+                // Log a simplified console command as backup
+                console.log('   💾 Alternative: Run this in console to download payload:');
                 console.log(`   const blob = new Blob([${JSON.stringify(prettyPayload)}], {type: 'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'form-payload.json'; a.click();`);
                 
                 $.ajax({
