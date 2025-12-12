@@ -1260,7 +1260,9 @@
                 data: { id: appKey },
                 headers: {
                     'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo
+                    'X-Token-To': userTokenTo,
+                    'X-Proxy-From-Url': SERVER_URL_FROM,
+                    'X-Proxy-To-Url': SERVER_URL_TO
                 },
                 success: function(response) {
                     console.log('✅ Source tables loaded from PROD:', response);
@@ -1331,7 +1333,9 @@
                 data: { id: tableKey },
                 headers: {
                     'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo
+                    'X-Token-To': userTokenTo,
+                    'X-Proxy-From-Url': SERVER_URL_FROM,
+                    'X-Proxy-To-Url': SERVER_URL_TO
                 },
                 success: function(response) {
                     console.log('✅ Fields loaded from PROD:', response);
@@ -1547,7 +1551,9 @@
                 },
                 headers: {
                     'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo
+                    'X-Token-To': userTokenTo,
+                    'X-Proxy-From-Url': SERVER_URL_FROM,
+                    'X-Proxy-To-Url': SERVER_URL_TO
                 },
                 success: function(response) {
                     console.log('✅ Forms loaded from PROD:', response);
@@ -1800,7 +1806,9 @@
                 },
                 headers: {
                     'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo
+                    'X-Token-To': userTokenTo,
+                    'X-Proxy-From-Url': SERVER_URL_FROM,
+                    'X-Proxy-To-Url': SERVER_URL_TO
                 },
                 success: function(response) {
                     console.log('✅ Form structure loaded from PROD:', response);
@@ -2271,7 +2279,9 @@
                 type: 'GET',
                 headers: {
                     'X-Token-From': sourceToken,
-                    'X-Token-To': destToken
+                    'X-Token-To': destToken,
+                    'X-Proxy-From-Url': SERVER_URL_FROM,
+                    'X-Proxy-To-Url': SERVER_URL_TO
                 },
                 success: function(response) {
                     console.log('✅ Applications retrieved from DEV');
@@ -2632,7 +2642,9 @@
                     data: JSON.stringify(payload),
                     headers: {
                         'X-Token-From': sourceToken,
-                        'X-Token-To': destToken
+                        'X-Token-To': destToken,
+                        'X-Proxy-From-Url': SERVER_URL_FROM,
+                        'X-Proxy-To-Url': SERVER_URL_TO
                     },
                     success: function(response) {
                         console.log('✅ Table created in DEV');
@@ -2714,7 +2726,9 @@
                     data: JSON.stringify(payload),
                     headers: {
                         'X-Token-From': sourceToken,
-                        'X-Token-To': destToken
+                        'X-Token-To': destToken,
+                        'X-Proxy-From-Url': SERVER_URL_FROM,
+                        'X-Proxy-To-Url': SERVER_URL_TO
                     },
                     success: function(response) {
                         console.log('✅ Field created');
@@ -2738,7 +2752,9 @@
                     data: { id: fieldKey },
                     headers: {
                         'X-Token-From': userTokenFrom,
-                        'X-Token-To': userTokenTo
+                        'X-Token-To': userTokenTo,
+                        'X-Proxy-From-Url': SERVER_URL_FROM,
+                        'X-Proxy-To-Url': SERVER_URL_TO
                     },
                     success: function(response) {
                         // Transform the response to match the expected format
@@ -2786,7 +2802,9 @@
                     },
                     headers: {
                         'X-Token-From': userTokenFrom,
-                        'X-Token-To': userTokenTo
+                        'X-Token-To': userTokenTo,
+                        'X-Proxy-From-Url': SERVER_URL_FROM,
+                        'X-Proxy-To-Url': SERVER_URL_TO
                     },
                     success: function(response) {
                         console.log('   📄 Form structure loaded from PROD:', formKey);
@@ -3328,7 +3346,9 @@
                     data: payloadString,
                     headers: {
                         'X-Token-From': $('#sourceTokenInput').val().trim(),
-                        'X-Token-To': $('#destTokenInput').val().trim()
+                        'X-Token-To': $('#destTokenInput').val().trim(),
+                        'X-Proxy-From-Url': SERVER_URL_FROM,
+                        'X-Proxy-To-Url': SERVER_URL_TO
                     },
                     success: function(response) {
                         console.log('   ✅ Form created successfully in DEV:', response);
