@@ -1,0 +1,17 @@
+{
+  "name": "table-form-duplicator",
+  "version": "1.0.0",
+  "description": "Table Form Duplicator - Copy tables from prod to dev",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["duplicator", "table", "form"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+
