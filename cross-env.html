@@ -994,6 +994,19 @@
         // ========================================
         
         /**
+         * Get current proxy headers from input fields (always fresh values)
+         * This ensures all API calls use the latest configuration
+         */
+        function getProxyHeaders() {
+            return {
+                'X-Token-From': $('#sourceTokenInput').val().trim(),
+                'X-Token-To': $('#destTokenInput').val().trim(),
+                'X-Proxy-From-Url': $('#sourceUrlInput').val().trim() || 'https://api.ignatius.io',
+                'X-Proxy-To-Url': $('#destUrlInput').val().trim() || 'https://devapi.ignatius.io'
+            };
+        }
+        
+        /**
          * Make a proxied API call through our local server
          * This bypasses browser CORS restrictions
          * Now supports dynamic source/destination URLs!
@@ -1258,12 +1271,7 @@
                 url: '/proxy/from/api/applicationtable/getbyapplicationid',
                 type: 'GET',
                 data: { id: appKey },
-                headers: {
-                    'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo,
-                    'X-Proxy-From-Url': SERVER_URL_FROM,
-                    'X-Proxy-To-Url': SERVER_URL_TO
-                },
+                headers: getProxyHeaders(),
                 success: function(response) {
                     console.log('✅ Source tables loaded from PROD:', response);
                     
@@ -1331,12 +1339,7 @@
                 url: '/proxy/from/api/Field/getbytableid',
                 type: 'GET',
                 data: { id: tableKey },
-                headers: {
-                    'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo,
-                    'X-Proxy-From-Url': SERVER_URL_FROM,
-                    'X-Proxy-To-Url': SERVER_URL_TO
-                },
+                headers: getProxyHeaders(),
                 success: function(response) {
                     console.log('✅ Fields loaded from PROD:', response);
                     
@@ -1549,12 +1552,7 @@
                     Id: tableKey,
                     inReport: false 
                 },
-                headers: {
-                    'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo,
-                    'X-Proxy-From-Url': SERVER_URL_FROM,
-                    'X-Proxy-To-Url': SERVER_URL_TO
-                },
+                headers: getProxyHeaders(),
                 success: function(response) {
                     console.log('✅ Forms loaded from PROD:', response);
                     
@@ -1804,12 +1802,7 @@
                     id: formKey,
                     tableId: sourceTableKey
                 },
-                headers: {
-                    'X-Token-From': userTokenFrom,
-                    'X-Token-To': userTokenTo,
-                    'X-Proxy-From-Url': SERVER_URL_FROM,
-                    'X-Proxy-To-Url': SERVER_URL_TO
-                },
+                headers: getProxyHeaders(),
                 success: function(response) {
                     console.log('✅ Form structure loaded from PROD:', response);
                     console.log(`🔍 Comparing against ${customFieldsToDuplicate.length} source table fields`);
@@ -2277,12 +2270,7 @@
             $.ajax({
                 url: '/proxy/to/api/Application/getall',
                 type: 'GET',
-                headers: {
-                    'X-Token-From': sourceToken,
-                    'X-Token-To': destToken,
-                    'X-Proxy-From-Url': SERVER_URL_FROM,
-                    'X-Proxy-To-Url': SERVER_URL_TO
-                },
+                headers: getProxyHeaders(),
                 success: function(response) {
                     console.log('✅ Applications retrieved from DEV');
                     
@@ -2640,12 +2628,7 @@
                     type: 'POST',
                     contentType: 'application/json',
                     data: JSON.stringify(payload),
-                    headers: {
-                        'X-Token-From': sourceToken,
-                        'X-Token-To': destToken,
-                        'X-Proxy-From-Url': SERVER_URL_FROM,
-                        'X-Proxy-To-Url': SERVER_URL_TO
-                    },
+                    headers: getProxyHeaders(),
                     success: function(response) {
                         console.log('✅ Table created in DEV');
                         resolve(response);
@@ -2724,12 +2707,7 @@
                     type: 'POST',
                     contentType: 'application/json',
                     data: JSON.stringify(payload),
-                    headers: {
-                        'X-Token-From': sourceToken,
-                        'X-Token-To': destToken,
-                        'X-Proxy-From-Url': SERVER_URL_FROM,
-                        'X-Proxy-To-Url': SERVER_URL_TO
-                    },
+                    headers: getProxyHeaders(),
                     success: function(response) {
                         console.log('✅ Field created');
                         resolve(response);
@@ -2750,12 +2728,7 @@
                     url: '/proxy/from/api/Field/getdropdownvalues',
                     type: 'GET',
                     data: { id: fieldKey },
-                    headers: {
-                        'X-Token-From': userTokenFrom,
-                        'X-Token-To': userTokenTo,
-                        'X-Proxy-From-Url': SERVER_URL_FROM,
-                        'X-Proxy-To-Url': SERVER_URL_TO
-                    },
+                    headers: getProxyHeaders(),
                     success: function(response) {
                         // Transform the response to match the expected format
                         const values = (response || []).map((item, index) => ({
@@ -2800,12 +2773,7 @@
                         id: formKey,
                         tableId: sourceTableKey
                     },
-                    headers: {
-                        'X-Token-From': userTokenFrom,
-                        'X-Token-To': userTokenTo,
-                        'X-Proxy-From-Url': SERVER_URL_FROM,
-                        'X-Proxy-To-Url': SERVER_URL_TO
-                    },
+                    headers: getProxyHeaders(),
                     success: function(response) {
                         console.log('   📄 Form structure loaded from PROD:', formKey);
                         resolve(response);
@@ -3344,12 +3312,7 @@
                     type: 'POST',
                     contentType: 'application/json',
                     data: payloadString,
-                    headers: {
-                        'X-Token-From': $('#sourceTokenInput').val().trim(),
-                        'X-Token-To': $('#destTokenInput').val().trim(),
-                        'X-Proxy-From-Url': SERVER_URL_FROM,
-                        'X-Proxy-To-Url': SERVER_URL_TO
-                    },
+                    headers: getProxyHeaders(),
                     success: function(response) {
                         console.log('   ✅ Form created successfully in DEV:', response);
                         resolve(response);
