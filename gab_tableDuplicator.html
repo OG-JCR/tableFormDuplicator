@@ -625,7 +625,7 @@
                                             </h6>
                                             <small class="text-muted">
                                                 <i class="bi bi-info-circle me-1"></i>
-                                                Edit field names and types directly in the table before duplicating.
+                                                Edit field names and types directly in the table before duplicating. Uncheck “Include” to exclude a field from creation.
                                             </small>
                                         </div>
                                         <div class="card-body p-0">
@@ -633,10 +633,11 @@
                                                 <table id="fieldsTable" class="table table-hover mb-0" style="width:100%">
                                                     <thead class="table-light">
                                                         <tr>
-                                                            <th style="width: 25%;">Original Name</th>
-                                                            <th style="width: 30%;">New Name</th>
+                                                            <th style="width: 22%;">Original Name</th>
+                                                            <th style="width: 28%;">New Name</th>
                                                             <th style="width: 20%;">Field Type</th>
-                                                            <th style="width: 25%;">Details</th>
+                                                            <th style="width: 10%;">Include</th>
+                                                            <th style="width: 20%;">Details</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -888,6 +889,7 @@
         let fieldsDataTable = null;
         let fieldNameMappings = {}; // Store original -> new name mappings
         let fieldTypeMappings = {}; // Store original -> new type mappings
+        let fieldIncludeMappings = {}; // Store original FieldName -> include boolean (false means excluded)
         let selectedFormsForDuplication = []; // Store selected forms to duplicate
         let fieldKeyMapping = {}; // Maps source field keys to new field keys: {sourceKey: newKey}
         let sourceForms = []; // Store all forms from source table
@@ -1259,9 +1261,11 @@
             // Initialize field name and type mappings
             fieldNameMappings = {};
             fieldTypeMappings = {};
+            fieldIncludeMappings = {};
             customFields.forEach(field => {
                 fieldNameMappings[field.FieldName] = field.Name; // Default to original name
                 fieldTypeMappings[field.FieldName] = field.FieldType; // Default to original type
+                fieldIncludeMappings[field.FieldName] = true; // Default: include all custom fields
             });
 
             // Destroy existing DataTable if it exists
@@ -1301,13 +1305,46 @@
                     </select>
                 `;
 
+                const isIncluded = fieldIncludeMappings[field.FieldName] !== false;
+                const includeToggle = `
+                    <div class="form-check form-switch d-flex justify-content-center">
+                        <input class="form-check-input field-include-checkbox" type="checkbox" role="switch" ${isIncluded ? 'checked' : ''}
+                               data-field-name="${field.FieldName}"
+                               title="Uncheck to exclude this field from the new table">
+                    </div>
+                `;
+
                 return [
                     field.Name, // Original name
                     `<input type="text" class="form-control form-control-sm editable-field" data-field-name="${field.FieldName}" value="${field.Name}" placeholder="Enter field name">`, // Editable input
                     typeDropdown, // Editable type dropdown
+                    includeToggle, // Include/exclude toggle
                     details || '-'
                 ];
             });
+
+            function updateFieldsCountBadge() {
+                const total = Object.keys(fieldIncludeMappings).length;
+                const includedCount = Object.values(fieldIncludeMappings).filter(v => v !== false).length;
+                $('#fieldsCount').text(`${includedCount}/${total}`);
+            }
+
+            function applyIncludeStateToVisibleRows() {
+                // DataTables redraws can recreate DOM nodes, so we re-apply current include state
+                $('#fieldsTable tbody tr').each(function() {
+                    const $row = $(this);
+                    const $checkbox = $row.find('.field-include-checkbox');
+                    if ($checkbox.length === 0) return;
+
+                    const fieldName = $checkbox.data('field-name');
+                    const isIncluded = fieldIncludeMappings[fieldName] !== false;
+
+                    $checkbox.prop('checked', isIncluded);
+                    $row.toggleClass('table-secondary', !isIncluded);
+                    $row.find('.editable-field').prop('disabled', !isIncluded);
+                    $row.find('.field-type-select').prop('disabled', !isIncluded);
+                });
+            }
 
             // Initialize DataTable
             fieldsDataTable = $('#fieldsTable').DataTable({
@@ -1324,8 +1361,12 @@
                 },
                 columnDefs: [
                     { orderable: true, targets: [0, 1, 2] },
-                    { orderable: false, targets: [3] }
-                ]
+                    { orderable: false, targets: [3, 4] }
+                ],
+                drawCallback: function() {
+                    applyIncludeStateToVisibleRows();
+                    updateFieldsCountBadge();
+                }
             });
 
             // Add input handler for editable name fields
@@ -1361,6 +1402,41 @@
                 fieldTypeMappings[fieldName] = newType;
                 console.log(`🔄 Changed field type for ${fieldName}: ${newTypeLabel} (${newType})`);
             });
+
+            // Include/Exclude toggle handler
+            $('#fieldsTable tbody').on('change', '.field-include-checkbox', function() {
+                const $this = $(this);
+                const fieldName = $this.data('field-name');
+                const isIncluded = $this.is(':checked');
+
+                fieldIncludeMappings[fieldName] = isIncluded;
+                
+                // Persist toggle state into DataTable's row data so it doesn't "snap back" on redraw
+                if (fieldsDataTable) {
+                    const $row = $this.closest('tr');
+                    const rowApi = fieldsDataTable.row($row);
+                    const rowData = rowApi.data();
+                    if (rowData && rowData.length >= 4) {
+                        rowData[3] = `
+                            <div class="form-check form-switch d-flex justify-content-center">
+                                <input class="form-check-input field-include-checkbox" type="checkbox" role="switch" ${isIncluded ? 'checked' : ''}
+                                       data-field-name="${fieldName}"
+                                       title="Uncheck to exclude this field from the new table">
+                            </div>
+                        `;
+                        rowApi.data(rowData).invalidate();
+                    }
+                }
+                
+                applyIncludeStateToVisibleRows();
+                updateFieldsCountBadge();
+
+                console.log(`${isIncluded ? '✅' : '🚫'} Field ${isIncluded ? 'included' : 'excluded'}: ${fieldName}`);
+            });
+
+            // Initial badge: included/total
+            updateFieldsCountBadge();
+            applyIncludeStateToVisibleRows();
 
             console.log('📊 Fields table displayed with', customFields.length, 'fields');
         }
@@ -2285,30 +2361,34 @@
                     
                     return true;
                 });
+
+                // Apply user Include/Exclude selections from the Fields table (default is include)
+                const includedFields = customFields.filter(field => fieldIncludeMappings[field.FieldName] !== false);
+                const excludedCount = customFields.length - includedFields.length;
                 
                 const skippedCount = sourceFields.length - customFields.length - 5;
-                console.log(`📝 Step 2: Duplicating ${customFields.length} custom fields (${skippedCount} fields skipped: relationships + formulas + lookups)...`);
+                console.log(`📝 Step 2: Duplicating ${includedFields.length} field(s) (${excludedCount} excluded by user, ${skippedCount} skipped: relationships + formulas + lookups)...`);
                 
                 // Start Step 2: Fields
-                updateProgressStep(2, 'active', `Duplicating ${customFields.length} fields...`);
-                updateLoadingMessage(`Creating fields... (0/${customFields.length})`);
+                updateProgressStep(2, 'active', `Duplicating ${includedFields.length} fields...`);
+                updateLoadingMessage(`Creating fields... (0/${includedFields.length})`);
 
                 // Step 3: Create each field
                 const fieldResults = [];
-                for (let i = 0; i < customFields.length; i++) {
-                    const field = customFields[i];
+                for (let i = 0; i < includedFields.length; i++) {
+                    const field = includedFields[i];
                     let fieldTypeDisplay = field.FieldType;
                     if (field.FieldType === 'ENUM') {
                         fieldTypeDisplay = `${field.FieldType} (Multiple Choice)`;
                     } else if (field.FieldType === 'ENUM2') {
                         fieldTypeDisplay = `${field.FieldType} (Multi-Select)`;
                     }
-                    console.log(`   Creating field ${i + 1}/${customFields.length}: ${field.Name} (${fieldTypeDisplay})`);
+                    console.log(`   Creating field ${i + 1}/${includedFields.length}: ${field.Name} (${fieldTypeDisplay})`);
                     
                     // Update progress
-                    const fieldProgress = ((i + 1) / customFields.length) * 100;
-                    updateProgressStep(2, 'active', `Creating field: ${field.Name} (${i + 1}/${customFields.length})`, fieldProgress);
-                    updateLoadingMessage(`Creating fields... (${i + 1}/${customFields.length})`);
+                    const fieldProgress = includedFields.length > 0 ? (((i + 1) / includedFields.length) * 100) : 100;
+                    updateProgressStep(2, 'active', `Creating field: ${field.Name} (${i + 1}/${includedFields.length})`, fieldProgress);
+                    updateLoadingMessage(`Creating fields... (${i + 1}/${includedFields.length})`);
                     updateOverallProgress(20 + (fieldProgress * 0.5)); // Fields are 50% of overall progress
                     
                     try {
@@ -3605,6 +3685,7 @@
             sourceFields = [];
             fieldNameMappings = {};
             fieldTypeMappings = {};
+            fieldIncludeMappings = {};
             destAppId = null;
             destAppKey = null;
             destAppName = null;
