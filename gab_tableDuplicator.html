@@ -799,7 +799,7 @@
                                     </div>
                                 </div>
                                 
-                                <!-- Step 3: Duplicate Forms -->
+                                <!-- Step 3: Load Form Rules -->
                                 <div class="progress-step mt-3" id="step3">
                                     <div class="d-flex align-items-center">
                                         <div class="step-icon text-muted" id="step3-icon">
@@ -807,12 +807,31 @@
                                         </div>
                                         <div class="flex-grow-1 ms-3">
                                             <div class="d-flex justify-content-between align-items-center">
-                                                <span class="fw-semibold">Duplicating forms</span>
+                                                <span class="fw-semibold">Loading form rules</span>
                                                 <span class="badge bg-secondary" id="step3-badge">Pending</span>
                                             </div>
                                             <small class="text-muted" id="step3-detail">Waiting for fields...</small>
                                             <div class="progress mt-2" style="height: 6px; display: none;" id="step3-progress-bar">
                                                 <div class="progress-bar" role="progressbar" style="width: 0%;" id="step3-progress"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 4: Duplicate Forms -->
+                                <div class="progress-step mt-3" id="step4">
+                                    <div class="d-flex align-items-center">
+                                        <div class="step-icon text-muted" id="step4-icon">
+                                            <i class="bi bi-circle"></i>
+                                        </div>
+                                        <div class="flex-grow-1 ms-3">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="fw-semibold">Duplicating forms</span>
+                                                <span class="badge bg-secondary" id="step4-badge">Pending</span>
+                                            </div>
+                                            <small class="text-muted" id="step4-detail">Waiting for form rules...</small>
+                                            <div class="progress mt-2" style="height: 6px; display: none;" id="step4-progress-bar">
+                                                <div class="progress-bar" role="progressbar" style="width: 0%;" id="step4-progress"></div>
                                             </div>
                                         </div>
                                     </div>
@@ -900,6 +919,7 @@
         let fieldIncludeMappings = {}; // Store original FieldName -> include boolean (false means excluded)
         let selectedFormsForDuplication = []; // Store selected forms to duplicate
         let fieldKeyMapping = {}; // Maps source field keys to new field keys: {sourceKey: newKey}
+        let formRulesByFormKey = {}; // Cache: { [sourceFormKey]: rules[] } (loaded during progress Step 3)
         let sourceForms = []; // Store all forms from source table
         let excludeHtmlElements = false; // Flag to exclude HTML/Divider elements from forms
         let includeFormRules = true; // Toggle: copy form rules to new forms (with field key crosswalk)
@@ -2450,10 +2470,50 @@
                 }
                 updateOverallProgress(70);
 
-                // Step 4: Create forms if any are selected
+                // Step 3 + 4: Form Rules + Forms
                 const formResults = [];
                 if (selectedFormsForDuplication.length > 0) {
-                    updateProgressStep(3, 'active', `Duplicating ${selectedFormsForDuplication.length} forms...`);
+                    // Step 3: Load form rules (optional)
+                    if (includeFormRules) {
+                        formRulesByFormKey = {};
+                        updateProgressStep(3, 'active', `Loading form rules for ${selectedFormsForDuplication.length} form(s)...`);
+                        updateLoadingMessage(`Loading form rules... (0/${selectedFormsForDuplication.length})`);
+                        
+                        let rulesOk = 0;
+                        let rulesFail = 0;
+                        for (let i = 0; i < selectedFormsForDuplication.length; i++) {
+                            const selectedForm = selectedFormsForDuplication[i];
+                            const rulesProgress = ((i + 1) / selectedFormsForDuplication.length) * 100;
+                            
+                            updateProgressStep(3, 'active', `Loading rules: ${selectedForm.name} (${i + 1}/${selectedFormsForDuplication.length})`, rulesProgress);
+                            updateLoadingMessage(`Loading form rules... (${i + 1}/${selectedFormsForDuplication.length})`);
+                            updateOverallProgress(70 + (rulesProgress * 0.1)); // Rules are 10% of overall progress (70% → 80%)
+                            
+                            try {
+                                const rules = await loadFormRulesForDuplication(selectedForm.key, sourceTableKey);
+                                formRulesByFormKey[selectedForm.key] = rules;
+                                rulesOk++;
+                            } catch (e) {
+                                formRulesByFormKey[selectedForm.key] = [];
+                                rulesFail++;
+                                console.warn(`   ⚠️ Failed to load rules for form "${selectedForm.name}" (continuing without rules):`, e);
+                            }
+                        }
+                        
+                        if (rulesFail > 0) {
+                            updateProgressStep(3, 'complete', `Rules loaded for ${rulesOk} form(s), ${rulesFail} failed (copied without rules)`);
+                        } else {
+                            updateProgressStep(3, 'complete', `Rules loaded for all ${rulesOk} form(s)`);
+                        }
+                        updateOverallProgress(80);
+                    } else {
+                        formRulesByFormKey = {};
+                        updateProgressStep(3, 'complete', 'Form rules skipped (toggle off)');
+                        updateOverallProgress(80);
+                    }
+
+                    // Step 4: Create forms
+                    updateProgressStep(4, 'active', `Duplicating ${selectedFormsForDuplication.length} forms...`);
                     updateLoadingMessage(`Creating forms... (0/${selectedFormsForDuplication.length})`);
                     
                     console.log(`📝 Step 4: Duplicating ${selectedFormsForDuplication.length} form(s)...`);
@@ -2465,9 +2525,9 @@
                         
                         // Update progress
                         const formProgress = ((i + 1) / selectedFormsForDuplication.length) * 100;
-                        updateProgressStep(3, 'active', `Creating form: ${selectedForm.name} (${i + 1}/${selectedFormsForDuplication.length})`, formProgress);
+                        updateProgressStep(4, 'active', `Creating form: ${selectedForm.name} (${i + 1}/${selectedFormsForDuplication.length})`, formProgress);
                         updateLoadingMessage(`Creating forms... (${i + 1}/${selectedFormsForDuplication.length})`);
-                        updateOverallProgress(70 + (formProgress * 0.3)); // Forms are 30% of overall progress
+                        updateOverallProgress(80 + (formProgress * 0.2)); // Forms are 20% of overall progress (80% → 100%)
                         
                         try {
                             const result = await createFormInTable(selectedForm.key, newTable.Key);
@@ -2487,15 +2547,17 @@
                         console.log(`   ❌ Failed: ${formFailCount} forms`);
                     }
                     
-                    // Complete Step 3
+                    // Complete Step 4
                     if (formFailCount > 0) {
-                        updateProgressStep(3, 'complete', `${formSuccessCount} forms created, ${formFailCount} failed`);
+                        updateProgressStep(4, 'complete', `${formSuccessCount} forms created, ${formFailCount} failed`);
                     } else {
-                        updateProgressStep(3, 'complete', `All ${formSuccessCount} forms created successfully`);
+                        updateProgressStep(4, 'complete', `All ${formSuccessCount} forms created successfully`);
                     }
                 } else {
                     console.log('ℹ️ No forms selected for duplication, skipping form creation.');
-                    updateProgressStep(3, 'complete', 'No forms selected (skipped)');
+                    updateProgressStep(3, 'complete', 'No forms selected (rules skipped)');
+                    updateProgressStep(4, 'complete', 'No forms selected (skipped)');
+                    updateOverallProgress(100);
                 }
 
                 console.log('🎉 Duplication complete!');
@@ -2697,16 +2759,9 @@
             // First, load the full form structure
             const formStructure = await loadFormStructureForDuplication(sourceFormKey);
             
-            // Load form rules from dedicated endpoint (optional toggle)
             if (includeFormRules) {
-                try {
-                    const rules = await loadFormRulesForDuplication(sourceFormKey, sourceTableKey);
-                    formStructure.FormRule = rules;
-                    console.log(`   📜 Loaded ${rules.length} form rule(s) from getformrules`);
-                } catch (e) {
-                    console.warn('   ⚠️ Continuing without form rules (getformrules failed):', e);
-                    formStructure.FormRule = formStructure.FormRule || [];
-                }
+                // Attach preloaded rules (loaded in progress Step 3); fall back to empty array if not available
+                formStructure.FormRule = formRulesByFormKey[sourceFormKey] || [];
             } else {
                 formStructure.FormRule = [];
             }
@@ -3868,6 +3923,7 @@
             fieldNameMappings = {};
             fieldTypeMappings = {};
             fieldIncludeMappings = {};
+            formRulesByFormKey = {};
             destAppId = null;
             destAppKey = null;
             destAppName = null;
