@@ -14,7 +14,7 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
   - Multiple tabs with custom layouts
   - Header fields
   - Design elements (HTML elements and Dividers)
-  - FormRules with conditional logic
+  - Form rules (conditional logic) with field-key remapping
 - **Form Structure Comparison**: Interactive preview showing what will be duplicated:
   - Side-by-side comparison of original vs. expected form structure
   - Visual indicators for included/excluded fields
@@ -27,13 +27,13 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
   - Formula fields
   - Lookup fields (external table references)
   - Fields from related tables not being duplicated
-- **Interactive Field Editor**: Edit field names and types before duplication
+- **Interactive Field Editor**: Edit field names and types before duplication, and **exclude fields** so they are not created in the new table
 - **Selective Form Duplication**: Choose which forms to duplicate via checkboxes
 
 ### Technical Features
 
 - **Field Key Remapping**: Automatically maps old field keys to new field keys for form integrity
-- **FormRules Support**: Preserves conditional show/hide/require logic
+- **Form Rules Support**: Copies form rules from the dedicated endpoint and remaps field keys. Any rule conditions/actions referencing excluded or uncreated fields are filtered out for safety.
 - **Design Element Support**: Full support for HTML and DIVIDER elements with style preservation
 - **Dynamic Field Validation**: Cross-references form fields with source table to identify missing dependencies
 - **External Dependency Handling**: Intelligently excludes features requiring external resources:
@@ -80,11 +80,13 @@ The **Table & Form Duplicator** is a powerful web-based tool designed to duplica
    - View all fields that will be duplicated
    - Edit field names inline
    - Change field types via dropdown
+   - Toggle **Include** off to exclude a field from being created in the new table
    - System fields, relationships, formulas, and lookups are automatically filtered out
 
 3. **Select Forms (Optional)**
    - Review available forms in the source table
    - Check the boxes next to forms you want to duplicate
+   - Toggle **Include Form Rules** on/off (defaults ON)
    - Click "View Structure" to inspect form details and see comparison:
      - Green checkmarks (✓) indicate fields that will be duplicated
      - Red X marks (✗) indicate fields that will be excluded
@@ -174,6 +176,7 @@ Source Form → Load Structure → Transform → Validate → Create
 
 - **`createFormInTable(sourceFormKey, targetTableKey)`**: Orchestrates form creation
 - **`loadFormStructureForDuplication(formKey)`**: Loads complete form structure
+- **`loadFormRulesForDuplication(formKey, tableKey)`**: Loads rules via `/api/form/getformrules`
 - **`transformFormStructure(sourceForm, targetTableKey)`**: Main transformation function
 - **`shouldExcludeField(field)`**: Validates if a field should be excluded from duplication
 - **`displayFormStructure(formData, formName)`**: Renders form comparison view with exclusion analysis
@@ -184,9 +187,9 @@ Source Form → Load Structure → Transform → Validate → Create
 - **`transformFormColumn(column, targetTableKey)`**: Transforms individual fields
 - **`transformFormFieldSetting(setting, newFieldKey)`**: Transforms field settings
 - **`transformHeaderFields(headerFields, targetTableKey)`**: Transforms header fields
-- **`transformFormRules(formRules)`**: Transforms conditional rules
-- **`transformFormConditionGroups(conditionGroups)`**: Transforms "IF" conditions
-- **`transformFormRuleConditions(ruleConditions)`**: Transforms "THEN" actions
+- **`transformFormRules(formRules)`**: Transforms and filters rules (supports the `getformrules` response shape)
+- **`transformFormConditionGroups(conditionGroups, ...)`**: Transforms "IF" conditions and drops unmapped ones
+- **`transformFormRuleConditions(ruleConditions, ...)`**: Transforms "THEN" actions and drops unmapped ones
 
 #### Utility Functions
 
@@ -241,12 +244,23 @@ fieldKeyMapping = {
   FormRuleIndex: 0,
   IsFormRuleActive: true,
   Name: "Rule Name",
-  FormConditionGroups: [  // "IF" conditions
+  FormConditionGroups: [  // "IF" conditions (copied from getformrules; field keys remapped)
     {
       ConditionType: "AND/OR",
       FormGroups: [
         {
           ConditionType: "AND/OR",
+          // NOTE: Two shapes exist in the platform; this tool supports both.
+          // getformrules shape:
+          FormConditions: [
+            {
+              ConditionGroupType: "field|user|...",
+              FieldKey: "mapped_field_key",
+              QueryCondition: "empty|is equal|...",
+              Value: "comparison_value"
+            }
+          ]
+          // legacy/loadformtoedit shape:
           Conditions: [
             {
               FieldKey: "mapped_field_key",
@@ -285,6 +299,7 @@ fieldKeyMapping = {
 | `/api/Field` | POST | Create new field |
 | `/api/form/getbytableid` | GET | Get forms by table key |
 | `/api/form/loadformtoedit` | GET | Load complete form structure |
+| `/api/form/getformrules` | GET | Load form rules for a form/table (used when “Include Form Rules” is ON) |
 | `/api/Form` | POST | Create new form |
 
 ## Features Excluded from Duplication
@@ -315,10 +330,10 @@ The following features are intentionally excluded because they require external 
 
 ### ✅ Included Features
 
-1. **FormRules**
-   - Conditional show/hide/require logic
-   - Field-based conditions and actions
-   - **Why it works**: Only references fields within the same form
+1. **Form Rules**
+   - Conditional show/hide/require/change logic
+   - Field keys are remapped to the newly-created field keys
+   - Any rule pieces referencing excluded/uncreated fields are filtered out
 
 2. **Form Layout**
    - Multiple tabs
@@ -431,6 +446,7 @@ Detailed console output for debugging:
 3. **Relationship Fields**: Not duplicated as they require existing related tables
 4. **Lookup Fields**: Not duplicated as they depend on external table relationships
 5. **Complex FormStyleOptions**: Some advanced styling may need manual adjustment
+6. **Rules referencing excluded fields**: If you exclude a field that a rule depends on, the tool will drop those rule parts (and may drop the whole rule if it becomes unsafe).
 
 ## Best Practices
 
@@ -485,7 +501,12 @@ Detailed console output for debugging:
 
 ## Version History
 
-### v1.1.0 (Current - November 2025)
+### v1.2.0 (Current - December 2025)
+- **Field Include/Exclude**: Exclude unwanted fields so they are not created in the new table
+- **Rule Copying via getformrules**: Loads rules from `/api/form/getformrules` and remaps keys
+- **Rules Safety Filtering**: Removes rule conditions/actions that reference excluded/uncreated fields
+
+### v1.1.0 (November 2025)
 - **Form Structure Comparison**: Interactive preview with visual indicators for included/excluded fields
 - **Dynamic Field Validation**: Cross-references form fields against source table
 - **Divider Support**: Full support for DIVIDER design elements alongside HTML elements
@@ -520,5 +541,5 @@ Internal use only - GAB Platform
 
 **Developed for:** Internal Use  
 **Platform:** GAB Platform  
-**Last Updated:** November 2025
+**Last Updated:** December 2025
 
