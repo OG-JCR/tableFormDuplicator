@@ -652,10 +652,18 @@
                                 <div class="col-12 mt-4" id="formsPreviewContainer" style="display: none;">
                                     <div class="card border-0 shadow-sm">
                                         <div class="card-header bg-light">
-                                            <h6 class="mb-0">
-                                                <i class="bi bi-file-earmark-text me-2"></i>Forms Available in Source Table
-                                                <span class="badge bg-info ms-2" id="formsCount">0</span>
-                                            </h6>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <h6 class="mb-0">
+                                                    <i class="bi bi-file-earmark-text me-2"></i>Forms Available in Source Table
+                                                    <span class="badge bg-info ms-2" id="formsCount">0</span>
+                                                </h6>
+                                                <div class="form-check form-switch mb-0">
+                                                    <input class="form-check-input" type="checkbox" role="switch" id="includeFormRulesToggle" checked>
+                                                    <label class="form-check-label small text-muted" for="includeFormRulesToggle" title="If enabled, form rules will be copied and re-mapped to the new table's field keys">
+                                                        Include Form Rules
+                                                    </label>
+                                                </div>
+                                            </div>
                                             <small class="text-muted">
                                                 <i class="bi bi-info-circle me-1"></i>
                                                 These forms are associated with the source table. You can review their structure in the next step.
@@ -894,6 +902,7 @@
         let fieldKeyMapping = {}; // Maps source field keys to new field keys: {sourceKey: newKey}
         let sourceForms = []; // Store all forms from source table
         let excludeHtmlElements = false; // Flag to exclude HTML/Divider elements from forms
+        let includeFormRules = true; // Toggle: copy form rules to new forms (with field key crosswalk)
         
         let destAppId = null;
         let destAppKey = null;
@@ -1016,6 +1025,12 @@
 
             // Duplicate table button handler
             $('#duplicateTableBtn').on('click', handleDuplicateTable);
+
+            // Include Form Rules toggle handler
+            $('#includeFormRulesToggle').on('change', function() {
+                includeFormRules = $(this).is(':checked');
+                console.log(`📜 Include Form Rules: ${includeFormRules ? 'ON' : 'OFF'}`);
+            });
 
             // Create another button handler
             $('#createAnotherBtn').on('click', resetForm);
@@ -2649,11 +2664,52 @@
         }
 
         /**
+         * Load form rules from API (separate endpoint)
+         * GET /api/form/getformrules?id=<formKey>&tableId=<sourceTableKey>
+         */
+        function loadFormRulesForDuplication(formKey, tableKey) {
+            return new Promise((resolve, reject) => {
+                $.ajax({
+                    url: SERVER_URL_PAGE + '/api/form/getformrules',
+                    type: 'GET',
+                    data: {
+                        id: formKey,
+                        tableId: tableKey
+                    },
+                    beforeSend: function(xhr) {
+                        xhr.setRequestHeader('Authorization', 'Bearer ' + userToken);
+                    },
+                    success: function(response) {
+                        resolve(response || []);
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('   ❌ Failed to load form rules:', xhr.responseText || error);
+                        reject(xhr.responseText || error);
+                    }
+                });
+            });
+        }
+
+        /**
          * Load form structure and create it in the new table
          */
         async function createFormInTable(sourceFormKey, targetTableKey) {
             // First, load the full form structure
             const formStructure = await loadFormStructureForDuplication(sourceFormKey);
+            
+            // Load form rules from dedicated endpoint (optional toggle)
+            if (includeFormRules) {
+                try {
+                    const rules = await loadFormRulesForDuplication(sourceFormKey, sourceTableKey);
+                    formStructure.FormRule = rules;
+                    console.log(`   📜 Loaded ${rules.length} form rule(s) from getformrules`);
+                } catch (e) {
+                    console.warn('   ⚠️ Continuing without form rules (getformrules failed):', e);
+                    formStructure.FormRule = formStructure.FormRule || [];
+                }
+            } else {
+                formStructure.FormRule = [];
+            }
             
             // Transform the form structure for the new table
             const transformedForm = transformFormStructure(formStructure, targetTableKey);
@@ -2737,55 +2793,156 @@
          */
         function transformFormRules(formRules) {
             if (!formRules || formRules.length === 0) return [];
-            
-            return formRules.map(rule => {
+
+            // Helpers for safely remapping rule field keys
+            function isDesignElementKey(key) {
+                if (!key || typeof key !== 'string') return false;
+                return /^html\d+$/i.test(key) || /^divider\d+$/i.test(key) || key.toLowerCase().startsWith('html');
+            }
+
+            function remapRuleFieldKeyOrNull(sourceKey) {
+                if (!sourceKey || typeof sourceKey !== 'string') return null;
+                const mapped = mapFieldKey(sourceKey);
+                if (mapped) return mapped;
+                if (isDesignElementKey(sourceKey)) return sourceKey; // styleoption keys live inside the form
+                return null; // unknown/unmapped -> drop
+            }
+
+            let droppedRules = 0;
+            let removedConditions = 0;
+            let removedActions = 0;
+
+            const transformedRules = [];
+
+            formRules.forEach(rule => {
+                const originalGroups = rule.FormConditionGroups || [];
+                const originalActions = rule.FormRuleConditions || [];
+
                 const transformedRule = {
                     // Keep basic rule properties (no Key/Id - let API generate)
-                    FormRuleIndex: rule.FormRuleIndex,
-                    IsFormRuleActive: rule.IsFormRuleActive,
-                    Name: rule.Name,
+                    FormRuleIndex: rule.FormRuleIndex !== undefined ? rule.FormRuleIndex : 0,
+                    IsFormRuleActive: rule.IsFormRuleActive !== undefined ? rule.IsFormRuleActive : true,
+                    Name: rule.Name || null,
                     // Transform FormConditionGroups (the "IF" conditions)
-                    FormConditionGroups: transformFormConditionGroups(rule.FormConditionGroups || []),
+                    FormConditionGroups: transformFormConditionGroups(originalGroups, remapRuleFieldKeyOrNull, () => { removedConditions++; }),
                     // Transform FormRuleConditions (the "THEN" actions)
-                    FormRuleConditions: transformFormRuleConditions(rule.FormRuleConditions || [])
+                    FormRuleConditions: transformFormRuleConditions(originalActions, remapRuleFieldKeyOrNull, () => { removedActions++; })
                 };
-                
-                return transformedRule;
+
+                // If we removed all IF conditions from a rule that originally had some, drop the whole rule
+                // (otherwise it could become "always true" and do unintended actions)
+                const hadAnyIf = Array.isArray(originalGroups) && originalGroups.length > 0;
+                const hasAnyIfNow = Array.isArray(transformedRule.FormConditionGroups) && transformedRule.FormConditionGroups.length > 0;
+                if (hadAnyIf && !hasAnyIfNow) {
+                    droppedRules++;
+                    return;
+                }
+
+                // If a rule has no actions after filtering, drop it
+                const hadAnyThen = Array.isArray(originalActions) && originalActions.length > 0;
+                const hasAnyThenNow = Array.isArray(transformedRule.FormRuleConditions) && transformedRule.FormRuleConditions.length > 0;
+                if (hadAnyThen && !hasAnyThenNow) {
+                    droppedRules++;
+                    return;
+                }
+
+                transformedRules.push(transformedRule);
             });
+
+            if (removedConditions > 0 || removedActions > 0 || droppedRules > 0) {
+                console.log(`   📜 FormRules filtering: kept=${transformedRules.length}, dropped=${droppedRules}, removed IF conditions=${removedConditions}, removed THEN actions=${removedActions}`);
+            }
+
+            return transformedRules;
         }
 
         /**
          * Transform FormConditionGroups (the "IF" part of rules)
          */
-        function transformFormConditionGroups(conditionGroups) {
+        function transformFormConditionGroups(conditionGroups, remapRuleFieldKeyOrNull = null, onRemove = null) {
             if (!conditionGroups || conditionGroups.length === 0) return [];
             
             return conditionGroups.map(group => {
-                return {
+                const groupOut = {
                     ConditionType: group.ConditionType,
-                    FormGroups: (group.FormGroups || []).map(formGroup => {
-                        return {
-                            ConditionType: formGroup.ConditionType,
-                            // Transform Conditions to use new field keys
-                            Conditions: (formGroup.Conditions || []).map(condition => {
-                                return {
-                                    Operand: condition.Operand,
-                                    Operator: condition.Operator,
-                                    Value: condition.Value,
-                                    // Remap the FieldKey to new field key
-                                    FieldKey: mapFieldKey(condition.FieldKey) || condition.FieldKey
-                                };
-                            })
-                        };
-                    })
+                    FormGroups: []
                 };
-            });
+
+                (group.FormGroups || []).forEach(formGroup => {
+                    // There are two possible shapes:
+                    // - getformrules: FormGroups[].FormConditions[] with QueryCondition/ConditionGroupType
+                    // - legacy/loadformtoedit: FormGroups[].Conditions[] with Operand/Operator
+                    if (Array.isArray(formGroup.FormConditions)) {
+                        const transformedFormConditions = [];
+
+                        (formGroup.FormConditions || []).forEach(condition => {
+                            const conditionType = condition.ConditionGroupType || 'field';
+                            let fieldKey = condition.FieldKey || '';
+
+                            // Only field-based conditions need remapping; user-based conditions typically don't have FieldKey
+                            if (conditionType === 'field' && fieldKey) {
+                                const mapped = remapRuleFieldKeyOrNull ? remapRuleFieldKeyOrNull(fieldKey) : (mapFieldKey(fieldKey) || null);
+                                if (!mapped) {
+                                    if (onRemove) onRemove();
+                                    return;
+                                }
+                                fieldKey = mapped;
+                            }
+
+                            transformedFormConditions.push({
+                                QueryCondition: condition.QueryCondition,
+                                Value: condition.Value,
+                                FormFieldId: 0,
+                                ConditionGroupType: conditionType,
+                                FieldKey: fieldKey
+                            });
+                        });
+
+                        if (transformedFormConditions.length > 0) {
+                            groupOut.FormGroups.push({
+                                ConditionType: formGroup.ConditionType,
+                                FormConditions: transformedFormConditions
+                            });
+                        }
+                    } else {
+                        const transformedLegacyConditions = [];
+
+                        (formGroup.Conditions || []).forEach(condition => {
+                            let fieldKey = condition.FieldKey || '';
+                            if (fieldKey) {
+                                const mapped = remapRuleFieldKeyOrNull ? remapRuleFieldKeyOrNull(fieldKey) : (mapFieldKey(fieldKey) || null);
+                                if (!mapped) {
+                                    if (onRemove) onRemove();
+                                    return;
+                                }
+                                fieldKey = mapped;
+                            }
+
+                            transformedLegacyConditions.push({
+                                Operand: condition.Operand,
+                                Operator: condition.Operator,
+                                Value: condition.Value,
+                                FieldKey: fieldKey
+                            });
+                        });
+
+                        if (transformedLegacyConditions.length > 0) {
+                            groupOut.FormGroups.push({
+                                ConditionType: formGroup.ConditionType,
+                                Conditions: transformedLegacyConditions
+                            });
+                        }
+                    }
+                });
+
+                return groupOut;
+            }).filter(group => group.FormGroups && group.FormGroups.length > 0);
         }
 
         /**
          * Transform FormRuleConditions (the "THEN" part of rules - what actions to take)
          */
-        function transformFormRuleConditions(ruleConditions) {
+        function transformFormRuleConditions(ruleConditions, remapRuleFieldKeyOrNull = null, onRemove = null) {
             if (!ruleConditions || ruleConditions.length === 0) return [];
             
             return ruleConditions.map(condition => {
@@ -2798,16 +2955,41 @@
                     AllTabsSelected: condition.AllTabsSelected
                 };
                 
-                // If this condition references a field, remap the field key
-                if (condition.Type === 'field' && condition.Value) {
-                    transformed.Value = mapFieldKey(condition.Value) || condition.Value;
-                    transformed.FieldKey = mapFieldKey(condition.FieldKey) || condition.FieldKey;
-                } else {
+                // Carry FieldKey where appropriate (and remap if it's a real field)
+                if (condition.FieldKey) {
+                    if (condition.Type === 'styleoption') {
+                        transformed.FieldKey = condition.FieldKey;
+                    } else {
+                        const mapped = remapRuleFieldKeyOrNull ? remapRuleFieldKeyOrNull(condition.FieldKey) : (mapFieldKey(condition.FieldKey) || null);
+                        if (!mapped) {
+                            if (onRemove) onRemove();
+                            return null;
+                        }
+                        transformed.FieldKey = mapped;
+                    }
+                }
+
+                // Map Value when it is a field key (common for hide/show/require rules)
+                if (condition.Type === 'field') {
+                    const mappedVal = remapRuleFieldKeyOrNull ? remapRuleFieldKeyOrNull(condition.Value) : (mapFieldKey(condition.Value) || null);
+                    if (!mappedVal) {
+                        if (onRemove) onRemove();
+                        return null;
+                    }
+                    transformed.Value = mappedVal;
+                } else if (condition.Type === 'styleoption') {
                     transformed.Value = condition.Value;
+                } else {
+                    // For "change_value" rules, Value is typically a literal; but if it happens to be a field key we can remap it
+                    if (typeof condition.Value === 'string' && mapFieldKey(condition.Value)) {
+                        transformed.Value = mapFieldKey(condition.Value);
+                    } else {
+                        transformed.Value = condition.Value;
+                    }
                 }
                 
                 return transformed;
-            });
+            }).filter(Boolean);
         }
 
         /**
@@ -3689,6 +3871,8 @@
             destAppId = null;
             destAppKey = null;
             destAppName = null;
+            includeFormRules = true;
+            $('#includeFormRulesToggle').prop('checked', true);
             
             console.log('Form reset - ready for new duplication');
         }
