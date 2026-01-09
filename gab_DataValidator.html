@@ -1,0 +1,3852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Excel → Table Field Mapper (PoC) - Frederick GMS</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { background: #f8f9fa; }
+    .header { background: #fff; border-bottom: 3px solid #2c5aa0; box-shadow: 0 2px 4px rgba(0,0,0,.06); }
+    .header-title { color: #2c5aa0; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+    .card { border: 0; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .pill { font-size: .75rem; }
+    .hint { color: #6c757d; font-size: .9rem; }
+    .dropzone {
+      border: 2px dashed #ced4da;
+      background: #fff;
+      border-radius: 12px;
+      padding: 28px;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .dropzone:hover { border-color: #2c5aa0; background: #fbfdff; }
+    .dropzone.dragover { border-color: #2c5aa0; background: #eef6ff; }
+    .table thead th { white-space: nowrap; }
+    .small-code { font-size: .85rem; }
+    .sticky-actions { position: sticky; bottom: 0; z-index: 10; background: #fff; border-top: 1px solid #e9ecef; }
+  </style>
+</head>
+<body>
+  <header class="header py-4">
+    <div class="container-fluid px-4">
+      <div class="d-flex flex-column align-items-center text-center">
+        <h1 class="header-title h3 mb-1">Excel → Table Field Mapper</h1>
+        <div class="hint">Upload an Excel file, pick a table, auto-map columns to fields (with suggestions), then export/import.</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container-fluid px-4 py-4">
+    <!-- Step 1: File -->
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <h2 class="h5 mb-1"><i class="bi bi-file-earmark-spreadsheet me-2 text-success"></i>Step 1 — Upload Excel</h2>
+            <div class="hint">We’ll read the sheet, detect headers, infer column data types, and preview rows.</div>
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="technicalModeToggle">
+            <label class="form-check-label" for="technicalModeToggle">Technical mode</label>
+          </div>
+        </div>
+
+        <input type="file" id="excelFile" accept=".xlsx,.xls" class="d-none">
+        <div id="dropzone" class="dropzone mt-3">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div>
+              <div class="fw-semibold"><i class="bi bi-upload me-2"></i>Click to choose a file or drag it here</div>
+              <div class="hint">Supported: .xlsx / .xls</div>
+            </div>
+            <button class="btn btn-outline-primary" id="chooseFileBtn" type="button">
+              <i class="bi bi-folder2-open me-1"></i>Choose File
+            </button>
+          </div>
+        </div>
+
+        <div id="fileInfo" class="mt-3 d-none">
+          <div class="alert alert-light border mb-0">
+            <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
+              <div>
+                <div class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-2"></i><span id="fileName">-</span></div>
+                <div class="small text-muted">Size: <span id="fileSize">-</span> · Sheets: <span id="fileSheetsCount">-</span></div>
+              </div>
+              <div class="d-flex gap-2 align-items-center">
+                <button class="btn btn-outline-secondary btn-sm" id="resetFileBtn" type="button">
+                  <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="sheetControls" class="row g-3 mt-2 d-none">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Sheet</label>
+            <select class="form-select" id="sheetSelect"></select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Header Row (1-based)</label>
+            <input type="number" class="form-control" id="headerRowInput" min="1" value="1">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Data starts on Row</label>
+            <input type="number" class="form-control" id="dataStartRowInput" min="1" value="2">
+          </div>
+        </div>
+
+        <div id="filePreview" class="mt-3 d-none">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <div class="fw-semibold"><i class="bi bi-eye me-2"></i>Preview (first 10 rows)</div>
+            <div class="small text-muted">Detected columns: <span id="detectedColCount">0</span></div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead class="table-light" id="previewHead"></thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="fileDebug" class="mt-3 d-none">
+          <div class="card border">
+            <div class="card-header bg-light fw-semibold"><i class="bi bi-terminal me-2"></i>Technical details</div>
+            <div class="card-body">
+              <pre class="mb-0 small-code bg-dark text-light p-3 rounded" style="max-height: 260px; overflow:auto;" id="debugText"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: App + Table -->
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-1"><i class="bi bi-diagram-3 me-2 text-primary"></i>Step 2 — Choose App + Table</h2>
+        <div class="hint">We’ll fetch tables in the app, then fetch fields for the selected table.</div>
+
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Application Key</label>
+            <div class="input-group">
+              <input type="text" class="form-control" id="appKeyInput" placeholder="e.g., pirn7jja1">
+              <button class="btn btn-outline-secondary" id="loadTablesBtn" type="button">
+                <i class="bi bi-search me-1"></i>Load Tables
+              </button>
+            </div>
+            <div class="form-text">Uses `api/applicationtable/getbyapplicationid?id={appKey}`</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Table</label>
+            <select class="form-select" id="tableSelect" disabled>
+              <option value="">— Load tables first —</option>
+            </select>
+            <div class="form-text">Uses `api/Field/getbytableid?id={tableKey}`</div>
+          </div>
+        </div>
+
+        <div class="mt-3 d-none" id="tableInfo">
+          <div class="alert alert-light border mb-0">
+            <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+              <div>
+                <div class="fw-semibold">Selected: <span id="selectedTableName">-</span></div>
+                <div class="small text-muted">
+                  Table Key: <span class="mono" id="selectedTableKey">-</span> · Fields: <span id="selectedFieldsCount">0</span>
+                </div>
+              </div>
+              <div class="d-flex gap-2 align-items-center">
+                <button class="btn btn-outline-primary btn-sm" id="autoDetectTableBtn" type="button" disabled title="Suggest a table based on file headers">
+                  <i class="bi bi-magic me-1"></i>Suggest Table
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Mapping -->
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <h2 class="h5 mb-1"><i class="bi bi-link-45deg me-2 text-info"></i>Step 3 — Map Columns → Fields</h2>
+            <div class="hint">We’ll suggest the closest field match using header similarity + inferred column type.</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary" id="autoMapBtn" type="button" disabled>
+              <i class="bi bi-lightning-charge me-1"></i>Auto-map
+            </button>
+            <button class="btn btn-outline-secondary" id="clearMappingBtn" type="button" disabled>
+              <i class="bi bi-eraser me-1"></i>Clear
+            </button>
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
+          <div class="small text-muted">
+            Tip: ignore columns like “Notes” or extra metadata you don’t want to import.
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="showIgnoredColumnsToggle">
+            <label class="form-check-label" for="showIgnoredColumnsToggle">Show ignored columns</label>
+          </div>
+        </div>
+
+        <div class="mt-3 d-none" id="mappingSummary"></div>
+
+        <div class="table-responsive mt-2">
+          <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 22%;">File Column</th>
+                <th style="width: 12%;">Inferred Type</th>
+                <th style="width: 40%;">Suggested / Selected Field</th>
+                <th style="width: 10%;">Confidence</th>
+                <th style="width: 12%;">Sample Values</th>
+                <th style="width: 4%;" class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="mappingTableBody">
+              <tr><td colspan="6" class="text-muted">Upload a file and load a table to generate mapping suggestions.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Lookup Rules (Crosswalk / VLOOKUP) -->
+        <div class="mt-4">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <div>
+              <div class="fw-semibold"><i class="bi bi-arrow-left-right me-2"></i>Lookup Rules (Crosswalk)</div>
+              <div class="hint">Convert user-facing identifiers (e.g., Project Number) into the relational record ID needed for relationship fields.</div>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-primary" id="openLookupBtn" type="button" disabled>
+                <i class="bi bi-plus-circle me-1"></i>Add Lookup
+              </button>
+              <button class="btn btn-outline-success" id="validateLookupsBtn" type="button" disabled>
+                <i class="bi bi-check2-circle me-1"></i>Validate Lookups
+              </button>
+              <button class="btn btn-outline-secondary" id="lookupClearAllBtn" type="button">
+                <i class="bi bi-eraser me-1"></i>Clear Lookups
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 26%;">Target Field</th>
+                  <th style="width: 22%;">Source Column</th>
+                  <th style="width: 16%;">Report Id</th>
+                  <th style="width: 26%;">Match / Return</th>
+                  <th style="width: 10%;" class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="lookupRulesBody">
+                <tr><td colspan="5" class="text-muted">Add a lookup to convert user-facing identifiers (e.g., Project Number) into relational record IDs.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-3 d-none" id="lookupValidationSummary"></div>
+        </div>
+
+      <!-- DB VLOOKUP (Enrichment) -->
+      <div class="mt-4">
+        <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+          <div class="fw-semibold"><i class="bi bi-search me-2"></i>DB VLOOKUP (Enrichment)</div>
+          <div class="d-flex gap-2 flex-shrink-0">
+            <button class="btn btn-outline-primary" id="openEnrichBtn" type="button" disabled>
+              <i class="bi bi-plus-circle me-1"></i>Add Enrichment
+            </button>
+            <button class="btn btn-outline-success" id="validateEnrichBtn" type="button" disabled>
+              <i class="bi bi-check2-circle me-1"></i>Validate Enrichment
+            </button>
+            <button class="btn btn-outline-secondary" id="enrichClearAllBtn" type="button">
+              <i class="bi bi-eraser me-1"></i>Clear Enrichment
+            </button>
+          </div>
+        </div>
+        <div class="hint mb-2">
+          Match a file identifier (ex: Supplier Number) to existing database records, then <strong>append</strong> columns like <code>__db_id</code> + a related field (does not overwrite your mapped fields).
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 20%;">Rule</th>
+                <th style="width: 20%;">Source Column</th>
+                <th style="width: 16%;">Report Id</th>
+                <th style="width: 34%;">Match / Return</th>
+                <th style="width: 10%;" class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="enrichRulesBody">
+              <tr><td colspan="5" class="text-muted">Add an enrichment rule to append existing db values into your export.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-3 d-none" id="enrichValidationSummary"></div>
+      </div>
+
+        <!-- (Removed) Existing Record Check (Same Table) -->
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-1"><i class="bi bi-cloud-arrow-up me-2 text-success"></i>Step 4 — Export / Import</h2>
+        <div class="hint">Export a normalized CSV for the <strong>currently selected sheet</strong> (headers will be the selected table FieldName tokens). Optionally create records via <code>FormAction/postdata</code>.</div>
+
+        <div class="row g-3 mt-1">
+          <div class="col-lg-12">
+            <div class="card border">
+              <div class="card-body">
+                <div class="fw-semibold mb-2">Export normalized CSV</div>
+                <div class="d-flex flex-wrap gap-2">
+                  <button class="btn btn-primary" id="downloadCsvBtn" type="button" disabled>
+                    <i class="bi bi-download me-1"></i>Download CSV
+                  </button>
+                  <button class="btn btn-outline-primary" id="downloadDebugXlsxBtn" type="button" disabled title="Exports an .xlsx with All/Matched/Missing tabs (debug mode only)">
+                    <i class="bi bi-file-earmark-spreadsheet me-1"></i>Download Debug XLSX
+                  </button>
+                  <button class="btn btn-outline-secondary" id="previewCsvBtn" type="button" disabled>
+                    <i class="bi bi-eye me-1"></i>Preview CSV
+                  </button>
+                </div>
+                <div id="exportReadiness" class="mt-3"></div>
+                <div id="enumValidationSummary" class="mt-3"></div>
+                <div class="form-check mt-3">
+                  <input class="form-check-input" type="checkbox" id="strictCsvModeToggle" checked>
+                  <label class="form-check-label" for="strictCsvModeToggle">
+                    Import-safe CSV (strip commas/quotes/line breaks inside values)
+                  </label>
+                  <div class="form-text">
+                    Some importers don’t respect quoted CSV properly. This prevents “column data mismatch” errors.
+                  </div>
+                </div>
+                <div class="form-check mt-2">
+                  <input class="form-check-input" type="checkbox" id="debugLookupAppendPkToggle">
+                  <label class="form-check-label" for="debugLookupAppendPkToggle">
+                    Debug lookup: keep identifier + append PK columns (for investigation)
+                  </label>
+                  <div class="form-text">
+                    Exports extra columns like <code>__lookup_id</code> and keeps the original identifier in the lookup field column. This may not be importable as-is.
+                  </div>
+                </div>
+                <div class="small text-muted mt-2">
+                  Tip: this is the “intermediate” artifact you can use with other import tools.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="csvPreviewWrap" class="mt-3 d-none">
+          <div class="card border">
+            <div class="card-header bg-light fw-semibold"><i class="bi bi-filetype-csv me-2"></i>CSV Preview</div>
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                <div class="small text-muted" id="csvPreviewMeta">Preview</div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" id="csvPreviewShowRawToggle">
+                  <label class="form-check-label" for="csvPreviewShowRawToggle">Show raw CSV</label>
+                </div>
+              </div>
+              <div class="table-responsive border rounded" style="max-height: 360px; overflow:auto; background:#fff;">
+                <div id="csvPreviewTable"></div>
+              </div>
+              <pre class="mb-0 small-code bg-dark text-light p-3 rounded mt-3 d-none" style="max-height: 240px; overflow:auto;" id="csvPreviewRaw"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="sticky-actions p-3 d-none" id="progressBarWrap">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="fw-semibold">
+          <i class="bi bi-hourglass-split me-2"></i><span id="progressLabel">Working...</span>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <div class="small text-muted"><span id="progressCounts">0/0</span></div>
+          <div class="progress" style="width: 320px; height: 10px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" id="progressFill" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Lookup Modal -->
+  <div class="modal fade" id="lookupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-arrow-left-right me-2"></i>Configure Lookup Rule (Crosswalk)
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-light border">
+            Use a report (e.g. Projects report <span class="mono">hoqjjhtq4</span>) to resolve a user-facing identifier into a relational record id.
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Source File Column (user identifier)</label>
+              <select class="form-select" id="lookupSourceColumn"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Target Table Field (will receive record id)</label>
+              <select class="form-select" id="lookupTargetField"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Parent Table (where the identifier lives)</label>
+              <select class="form-select mono" id="lookupParentTableSelect"></select>
+              <div class="form-text">Select the table that owns the identifier (ex: Projects). We’ll load reports from this table.</div>
+              <div class="form-text text-muted" id="lookupParentAutoHint"></div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Report (from parent table)</label>
+              <select class="form-select mono" id="lookupReportSelect"></select>
+              <div class="form-text">Loaded from <code>GET /api/report/getreportbytableid</code> using the selected parent table.</div>
+            </div>
+            <div class="col-md-12 d-none" id="lookupReportCustomWrap">
+              <label class="form-label fw-semibold">Custom Report Id</label>
+              <input type="text" class="form-control mono" id="lookupReportIdCustom" placeholder="e.g., hoqjjhtq4">
+              <div class="form-text">Fallback for cross-table reports. Uses <code>POST /api/Report/queryreport</code></div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Normalize Match Key</label>
+              <select class="form-select" id="lookupNormalizeMode">
+                <option value="trimLower" selected>trim + lowercase (recommended)</option>
+                <option value="keepAmpDash">keep &amp; and - (strip commas/periods)</option>
+                <option value="normalizeName">aggressive (strip punctuation + lowercase)</option>
+              </select>
+              <div class="form-text">Use <code>keep &amp; and -</code> for names like “A&B” or “Smith-Jones”. Use aggressive only if spacing/punctuation varies a lot.</div>
+            </div>
+
+            <div class="col-12">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="fw-semibold">Report Columns</div>
+                <button class="btn btn-outline-primary btn-sm" id="lookupLoadReportSampleBtn" type="button">
+                  <i class="bi bi-search me-1"></i>Load Sample
+                </button>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Match Report Column (identifier)</label>
+              <select class="form-select mono" id="lookupMatchColumn">
+                <option value="">Load report sample…</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Return Report Column (record id)</label>
+              <select class="form-select mono" id="lookupReturnColumn">
+                <option value="">Load report sample…</option>
+              </select>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label fw-semibold">Sample Preview (first 25 rows)</label>
+              <pre class="mb-0 small-code bg-dark text-light p-3 rounded" style="max-height: 240px; overflow:auto;" id="lookupSamplePreview"></pre>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="lookupSaveBtn">
+            <i class="bi bi-save me-1"></i>Save Lookup
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enrichment Modal -->
+  <div class="modal fade" id="enrichModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-search me-2"></i>Configure DB VLOOKUP (Enrichment)
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-light border">
+            Appends <code>__db_id</code> and one related field from an existing record match. Does not overwrite mapped fields.
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Rule name</label>
+              <input class="form-control" id="enrichRuleName" placeholder="e.g., Supplier match">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Output prefix</label>
+              <input class="form-control mono" id="enrichOutputPrefix" placeholder="e.g., supplier">
+              <div class="form-text">Will create columns like <code>&lt;prefix&gt;__db_id</code> and <code>&lt;prefix&gt;__db_field</code>.</div>
+            </div>
+
+            <div class="col-md-12">
+              <label class="form-label fw-semibold">Target field to populate (recommended)</label>
+              <select class="form-select mono" id="enrichTargetFieldSelect"></select>
+              <div class="form-text">
+                Choose the <strong>field token in the table you are importing into</strong> (often <code>related_*</code>). We will write the matched parent <code>id</code> into a column with this exact header.
+              </div>
+            </div>
+
+            <div class="col-md-12">
+              <details>
+                <summary class="small text-muted">Advanced: override output header</summary>
+                <div class="mt-2">
+                  <label class="form-label fw-semibold">Output column header for matched record id</label>
+                  <input class="form-control mono" id="enrichIdOutputHeader" placeholder="e.g., related_contractors">
+                  <div class="form-text">Leave blank to use the selected target field above.</div>
+                </div>
+              </details>
+            </div>
+
+            <div class="col-md-12">
+              <label class="form-label fw-semibold">Parent Table (where the identifier lives)</label>
+              <select class="form-select mono" id="enrichParentTableSelect"></select>
+              <div class="form-text">Select the table you want to search (we’ll load reports from this table).</div>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Source File Column (unique identifier)</label>
+              <select class="form-select" id="enrichSourceColumn"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Normalize match key</label>
+              <select class="form-select" id="enrichNormalizeMode">
+                <option value="trimLower" selected>trim + lowercase</option>
+                <option value="normalizeName">strip punctuation + lowercase</option>
+                <option value="keepAmpDash">keep &amp; and - (strip commas/periods)</option>
+              </select>
+            </div>
+
+            <div class="col-md-12">
+              <label class="form-label fw-semibold">Report (from parent table)</label>
+              <select class="form-select mono" id="enrichReportSelect"></select>
+              <div class="form-text">Uses <code>GET /api/report/getreportbytableid</code> for the selected parent table.</div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Match report column</label>
+              <select class="form-select mono" id="enrichMatchColumn">
+                <option value="">Load report sample…</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Return id column</label>
+              <select class="form-select mono" id="enrichIdColumn">
+                <option value="">Load report sample…</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Return extra field (optional)</label>
+              <select class="form-select mono" id="enrichReturnColumn">
+                <option value="">Load report sample…</option>
+              </select>
+            </div>
+
+            <div class="col-md-12">
+              <div class="alert alert-light border mb-0">
+                <div class="small text-muted">This enrichment will append columns:</div>
+                <div class="mono" id="enrichOutputsPreview">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="button" id="saveEnrichRuleBtn">
+            <i class="bi bi-check2-circle me-1"></i>Save enrichment
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enum Fixes Modal -->
+  <div class="modal fade" id="enumFixModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" style="--bs-modal-width: 1240px;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-wrench-adjustable-circle me-2"></i>Fix Enum Values (Find & Replace All)
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-light border mb-3">
+            Map unmatched file values to valid dropdown values for <code>ENUM</code>/<code>ENUM2</code> fields. These fixes apply during Preview/Download/Import.
+          </div>
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <div class="fw-semibold">
+              Field: <span class="mono" id="enumFixFieldName">—</span>
+            </div>
+            <button class="btn btn-sm btn-outline-danger" type="button" id="enumFixClearBtn">
+              <i class="bi bi-trash me-1"></i>Clear fixes for this field
+            </button>
+          </div>
+          <div class="small text-muted mb-2" id="enumFixMeta">—</div>
+
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:3%;">
+                    <input class="form-check-input" type="checkbox" id="enumFixSelectAllToggle" title="Select all">
+                  </th>
+                  <th style="width:34%;">Unmatched value (file)</th>
+                  <th class="text-end" style="width:8%;">Count</th>
+                  <th style="width:30%;">Replace with (dropdown value)</th>
+                  <th style="width:22%;">New option label</th>
+                  <th class="text-end" style="width:4%;">Add</th>
+                </tr>
+              </thead>
+              <tbody id="enumFixBody">
+                <tr><td colspan="6" class="text-muted">No unmatched values.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="small text-muted">
+            Tip: choose a replacement for each value and click <strong>Apply</strong>. This behaves like “Find & Replace All” for that field/value.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Close</button>
+          <button class="btn btn-outline-success" type="button" id="enumFixBulkAddBtn">
+            <i class="bi bi-plus-circle me-1"></i>Add selected options
+          </button>
+          <button class="btn btn-primary" type="button" id="enumFixApplyBtn">
+            <i class="bi bi-check2-circle me-1"></i>Apply fixes
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Message Modal (replaces alert()) -->
+  <div class="modal fade" id="appMsgModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="appMsgTitle">Message</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="appMsgBody"></div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" type="button" data-bs-dismiss="modal">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Confirm Modal (replaces confirm()) -->
+  <div class="modal fade" id="appConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="appConfirmTitle">Confirm</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="appConfirmBody"></div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal" id="appConfirmCancelBtn">Cancel</button>
+          <button class="btn btn-primary" type="button" id="appConfirmOkBtn">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // -----------------------------
+    // API + Auth (borrowed patterns)
+    // -----------------------------
+    const aesKEY = "UjXn2r5u8x!A%D*G-KaPdSgVkYp3s6v9";
+    const API_BASE = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      ? "/proxy"
+      : "https://api.ignatius.io";
+
+    let userToken = "";
+    try {
+      const encryptedToken = localStorage.getItem("token");
+      if (encryptedToken) userToken = CryptoJS.AES.decrypt(encryptedToken, aesKEY).toString(CryptoJS.enc.Utf8);
+    } catch (e) {
+      console.warn("Token decrypt failed:", e);
+    }
+
+    function setAuthHeaderIfPresent(xhr) {
+      if (userToken) xhr.setRequestHeader("Authorization", "Bearer " + userToken);
+    }
+
+    function apiGet(path, data) {
+      return $.ajax({
+        url: `${API_BASE}${path}`,
+        type: "GET",
+        data,
+        timeout: 60_000,
+        beforeSend: setAuthHeaderIfPresent,
+      });
+    }
+
+    function apiPost(path, payload) {
+      return $.ajax({
+        url: `${API_BASE}${path}`,
+        type: "POST",
+        contentType: "application/json",
+        data: JSON.stringify(payload),
+        timeout: 120_000,
+        beforeSend: setAuthHeaderIfPresent,
+      });
+    }
+
+    function apiPut(path, payload) {
+      return $.ajax({
+        url: `${API_BASE}${path}`,
+        type: "PUT",
+        contentType: "application/json",
+        data: JSON.stringify(payload),
+        timeout: 120_000,
+        beforeSend: setAuthHeaderIfPresent,
+      });
+    }
+
+    function queryReport(reportId, conditionGroups = null) {
+      const payload = { ReportId: reportId };
+      if (conditionGroups) payload.ConditionGroups = conditionGroups;
+      return apiPost("/api/Report/queryreport", payload);
+    }
+
+    async function loadReportsForTableKey(tableKey) {
+      // Example:
+      // /api/report/getreportbytableid?id={tableKey}&inForms=false&formType=&fromTableSettings=false
+      const resp = await apiGet("/api/report/getreportbytableid", {
+        id: tableKey,
+        inForms: false,
+        formType: "",
+        fromTableSettings: false,
+      });
+      const arr = Array.isArray(resp) ? resp : [];
+      arr.sort((a, b) =>
+        String(a?.Name || a?.ReportName || a?.Title || "")
+          .localeCompare(String(b?.Name || b?.ReportName || b?.Title || ""))
+      );
+      tableReports = arr;
+      return arr;
+    }
+
+    async function loadReportsForTableKeyCached(tableKey) {
+      const key = String(tableKey || "").trim();
+      if (!key) {
+        tableReports = [];
+        return [];
+      }
+      if (reportsByTableKey.has(key)) {
+        tableReports = reportsByTableKey.get(key) || [];
+        return tableReports;
+      }
+      const arr = await loadReportsForTableKey(key);
+      reportsByTableKey.set(key, arr);
+      return arr;
+    }
+
+    // -----------------------------
+    // State
+    // -----------------------------
+    let workbook = null;
+    let activeSheetName = null;
+    let sheetRows = []; // Array<Array<any>>
+    let fileColumns = []; // [{ index, header, normHeader, inferredType, samples: [] }]
+    let tables = []; // [{Name, Key, Id, ...}]
+    let selectedTable = null;
+    let tableFields = []; // [{Name, FieldName, FieldType, Key, ...}]
+    let columnToField = new Map(); // colIndex -> fieldFieldName (token)
+    let ignoredColumnIndexes = new Set(); // file column indexes ignored from mapping/export
+    let lookupRules = new Map(); // targetFieldName -> { sourceColIndex, reportId, matchColumnKey, returnColumnKey, matchNormalizeMode }
+    let lookupCaches = new Map(); // reportId -> { rows: [], indexes: Map(targetFieldName -> { exact: Map(matchKey->returnValue), entries: Array<{k, returnVal}> }) }
+    let tableReports = []; // reports associated with the selected parent table (lookup modal)
+    let reportsByTableKey = new Map(); // tableKey -> reports array (cache)
+    let fieldsByTableKey = new Map(); // tableKey -> fields array (cache) for table suggestion
+    let hasDuplicateMappings = false; // used to disable export/import when ambiguous
+    let dropdownValuesByFieldKey = new Map(); // fieldKey -> { values: string[], exact: Map, norm: Map, abbrev: Map }
+    let enumValueFixesByFieldName = new Map(); // fieldName -> Map(normalizedRaw -> replacementValue)
+    let enumFixDraft = null; // { fieldName, map: Map(normalizedRaw->replacementValue) }
+    let enrichRules = []; // [{ id, name, sourceColIndex, parentTableKey, reportId, matchColumnKey, idColumnKey, returnColumnKey?, matchNormalizeMode, outputPrefix, idOutputHeader? }]
+    let enrichCaches = new Map(); // reportId -> { rows: [], indexes: Map(ruleId -> Map(matchKey -> rowObj)) }
+    let appConfirmResolver = null;
+
+    // Last computed validation stats (so summaries persist after user changes enum fixes, etc.)
+    let lastValidationState = {
+      lookupStats: null,
+      enumStats: null,
+      enrichStats: null,
+      lookupExportMode: null,
+      at: 0,
+    };
+
+    function invalidateValidationState() {
+      lastValidationState = { lookupStats: null, enumStats: null, enrichStats: null, lookupExportMode: null, at: 0 };
+    }
+
+    // (Removed) Existing record check (same table)
+
+    // -----------------------------
+    // Utils
+    // -----------------------------
+    function fmtBytes(bytes) {
+      if (!bytes && bytes !== 0) return "-";
+      const units = ["B", "KB", "MB", "GB"];
+      let v = bytes;
+      let i = 0;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function fmtMmDdYyyy(dateObj) {
+      if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) return "";
+      const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const dd = String(dateObj.getDate()).padStart(2, "0");
+      const yyyy = String(dateObj.getFullYear());
+      return `${mm}/${dd}/${yyyy}`;
+    }
+
+    function formatCellForDisplay(v) {
+      // Make Date objects readable in UI previews/samples
+      if (v instanceof Date && !isNaN(v.getTime())) return fmtMmDdYyyy(v);
+      return String(v ?? "");
+    }
+
+    function normalizeName(s) {
+      return String(s || "")
+        .toLowerCase()
+        .replace(/[_\-\/]+/g, " ")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function normalizeLookupKey(v, mode = "trimLower") {
+      const s = String(v ?? "");
+      if (mode === "normalizeName") return normalizeName(s);
+      if (mode === "keepAmpDash") {
+        // Keep ampersands and dashes (useful for firm names like "A&B" or "Smith-Jones"),
+        // but strip commas/periods and most other punctuation.
+        return String(s || "")
+          .toLowerCase()
+          // remove commas/periods explicitly
+          .replace(/[.,]/g, "")
+          // remove quotes
+          .replace(/["'“”‘’]/g, "")
+          // normalize separators we don't care about
+          .replace(/[_/]+/g, " ")
+          // keep only letters/numbers/space/&/-
+          .replace(/[^a-z0-9&\-\s]/g, " ")
+          // normalize spacing around & and -
+          .replace(/\s*&\s*/g, " & ")
+          .replace(/\s*-\s*/g, " - ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+      return s.trim().toLowerCase().replace(/\s+/g, " ");
+    }
+
+    function abbreviateName(s) {
+      const t = tokens(s);
+      if (!t.length) return "";
+      return t.map(w => (w && w[0] ? w[0] : "")).join("");
+    }
+
+    function buildUniqueMap(pairs) {
+      // pairs: Array<[key, value]>; if key maps to multiple distinct values, mark as ambiguous (null)
+      const m = new Map();
+      for (const [k, v] of pairs) {
+        if (!k) continue;
+        const prev = m.get(k);
+        if (prev === undefined) m.set(k, v);
+        else if (prev !== v) m.set(k, null);
+      }
+      // remove ambiguous
+      for (const [k, v] of m.entries()) {
+        if (v === null) m.delete(k);
+      }
+      return m;
+    }
+
+    async function loadDropdownValuesForFieldKeyCached(fieldKey) {
+      const k = String(fieldKey || "").trim();
+      if (!k) return null;
+      if (dropdownValuesByFieldKey.has(k)) return dropdownValuesByFieldKey.get(k);
+
+      const resp = await apiGet("/api/Field/getdropdownvalues", { id: k });
+      const rows = Array.isArray(resp) ? resp : [];
+      const values = rows
+        .map(item => String(item?.Value ?? item?.value ?? item?.Name ?? "").trim())
+        .filter(Boolean);
+
+      const exactPairs = values.map(v => [v.trim().toLowerCase(), v]);
+      const normPairs = values.map(v => [normalizeName(v), v]);
+      const abbrevPairs = values.map(v => [abbreviateName(v), v]);
+
+      const entry = {
+        values,
+        exact: buildUniqueMap(exactPairs),
+        norm: buildUniqueMap(normPairs),
+        abbrev: buildUniqueMap(abbrevPairs),
+      };
+      dropdownValuesByFieldKey.set(k, entry);
+      return entry;
+    }
+
+    async function addEnumOptionToField({ fieldName, newValue }) {
+      const fName = String(fieldName || "").trim();
+      const v = String(newValue || "").trim();
+      if (!fName || !v) throw new Error("Missing fieldName or newValue");
+
+      const fieldByFieldName = new Map(tableFields.map(ff => [ff.FieldName, ff]));
+      const f = fieldByFieldName.get(fName);
+      if (!f) throw new Error(`Field not found in current tableFields: ${fName}`);
+      if (fieldGeneralType(f.FieldType) !== "enum") throw new Error(`Field is not ENUM/ENUM2: ${fName}`);
+
+      const fieldKey = String(f.Key || f.FieldKey || "").trim();
+      if (!fieldKey) throw new Error(`FieldKey missing for ${fName}`);
+
+      // Load current dropdown values (source of truth for Values payload)
+      const dropdownEntry = await loadDropdownValuesForFieldKeyCached(fieldKey);
+      const existing = dropdownEntry?.values || [];
+
+      // De-dupe by case-insensitive compare
+      const existingLower = new Set(existing.map(x => String(x || "").trim().toLowerCase()).filter(Boolean));
+      if (existingLower.has(v.toLowerCase())) {
+        return { ok: true, alreadyExists: true, addedValue: v };
+      }
+
+      let all = [...existing, v];
+      if (f.IsAlphaSort) {
+        all = all.sort((a, b) => String(a).localeCompare(String(b)));
+      }
+
+      const valuesPayload = all.map((label, idx) => ({
+        IsActive: true,
+        value: label,
+        FieldKey: fieldKey,
+        Order: idx + 1,
+      }));
+
+      // PUT /api/Field expects a full field payload (as seen in the browser network call).
+      // We reuse the field object from /getbytableid and attach the computed Values array.
+      const payload = {
+        ...f,
+        Key: fieldKey,
+        Name: f.Name || fName,
+        FieldName: f.FieldName || fName,
+        FieldType: f.FieldType,
+        ApplicationTableKey: f.ApplicationTableKey || selectedTable?.Key,
+        Values: valuesPayload,
+      };
+
+      await apiPut("/api/Field", payload);
+
+      // Refresh dropdown cache for this fieldKey
+      dropdownValuesByFieldKey.delete(fieldKey);
+      await loadDropdownValuesForFieldKeyCached(fieldKey);
+
+      return { ok: true, alreadyExists: false, addedValue: v };
+    }
+
+    async function addEnumOptionsToFieldBulk({ fieldName, newValues }) {
+      const fName = String(fieldName || "").trim();
+      const vals = Array.isArray(newValues) ? newValues.map(v => String(v || "").trim()).filter(Boolean) : [];
+      if (!fName) throw new Error("Missing fieldName");
+      if (!vals.length) return { ok: true, added: [], alreadyPresent: [] };
+
+      const fieldByFieldName = new Map(tableFields.map(ff => [ff.FieldName, ff]));
+      const f = fieldByFieldName.get(fName);
+      if (!f) throw new Error(`Field not found in current tableFields: ${fName}`);
+      if (fieldGeneralType(f.FieldType) !== "enum") throw new Error(`Field is not ENUM/ENUM2: ${fName}`);
+
+      const fieldKey = String(f.Key || f.FieldKey || "").trim();
+      if (!fieldKey) throw new Error(`FieldKey missing for ${fName}`);
+
+      const dropdownEntry = await loadDropdownValuesForFieldKeyCached(fieldKey);
+      const existing = dropdownEntry?.values || [];
+      const existingLower = new Set(existing.map(x => String(x || "").trim().toLowerCase()).filter(Boolean));
+
+      const toAdd = [];
+      const already = [];
+      for (const v of vals) {
+        if (existingLower.has(v.toLowerCase())) already.push(v);
+        else toAdd.push(v);
+      }
+      if (!toAdd.length) return { ok: true, added: [], alreadyPresent: already };
+
+      let all = [...existing, ...toAdd];
+      if (f.IsAlphaSort) {
+        all = all.sort((a, b) => String(a).localeCompare(String(b)));
+      }
+
+      const valuesPayload = all.map((label, idx) => ({
+        IsActive: true,
+        value: label,
+        FieldKey: fieldKey,
+        Order: idx + 1,
+      }));
+
+      const payload = {
+        ...f,
+        Key: fieldKey,
+        Name: f.Name || fName,
+        FieldName: f.FieldName || fName,
+        FieldType: f.FieldType,
+        ApplicationTableKey: f.ApplicationTableKey || selectedTable?.Key,
+        Values: valuesPayload,
+      };
+
+      await apiPut("/api/Field", payload);
+
+      dropdownValuesByFieldKey.delete(fieldKey);
+      await loadDropdownValuesForFieldKeyCached(fieldKey);
+
+      return { ok: true, added: toAdd, alreadyPresent: already };
+    }
+
+    function resolveEnumValue(raw, dropdownEntry) {
+      const s = String(raw ?? "").trim();
+      if (!s) return { value: "", status: "blank" };
+      if (!dropdownEntry) return { value: s, status: "noDropdown" };
+
+      const exactKey = s.toLowerCase();
+      const exact = dropdownEntry.exact.get(exactKey);
+      if (exact) return { value: exact, status: "exact" };
+
+      const normKey = normalizeName(s);
+      const norm = normKey ? dropdownEntry.norm.get(normKey) : null;
+      if (norm) return { value: norm, status: "normalized" };
+
+      // Abbreviation match (e.g., "NC" => "North Carolina")
+      const abbrevKey = s.replace(/[^a-z0-9]/gi, "").toLowerCase();
+      if (abbrevKey && abbrevKey.length <= 6) {
+        const ab = dropdownEntry.abbrev.get(abbrevKey);
+        if (ab) return { value: ab, status: "abbrev" };
+      }
+
+      return { value: s, status: "unmatched" };
+    }
+
+    function getEnumFixKey(raw) {
+      // Case/space-insensitive key (treats "NC" and "nc" as the same)
+      return normalizeLookupKey(raw, "trimLower");
+    }
+
+    function resolveEnumValueForField(fieldName, raw, dropdownEntry) {
+      const key = getEnumFixKey(raw);
+      if (key) {
+        const fixes = enumValueFixesByFieldName.get(fieldName);
+        const replacement = fixes?.get(key);
+        if (replacement !== undefined && replacement !== null && String(replacement).trim() !== "") {
+          return { value: String(replacement), status: "override" };
+        }
+      }
+      return resolveEnumValue(raw, dropdownEntry);
+    }
+
+    function tokens(s) {
+      const n = normalizeName(s);
+      return n ? n.split(" ") : [];
+    }
+
+    function jaccard(aTokens, bTokens) {
+      const a = new Set(aTokens);
+      const b = new Set(bTokens);
+      if (a.size === 0 && b.size === 0) return 1;
+      if (a.size === 0 || b.size === 0) return 0;
+      let inter = 0;
+      a.forEach(t => { if (b.has(t)) inter++; });
+      const union = a.size + b.size - inter;
+      return union ? inter / union : 0;
+    }
+
+    function levenshtein(a, b) {
+      a = String(a || "");
+      b = String(b || "");
+      const m = a.length, n = b.length;
+      if (m === 0) return n;
+      if (n === 0) return m;
+      const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+      for (let i = 0; i <= m; i++) dp[i][0] = i;
+      for (let j = 0; j <= n; j++) dp[0][j] = j;
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(
+            dp[i - 1][j] + 1,
+            dp[i][j - 1] + 1,
+            dp[i - 1][j - 1] + cost
+          );
+        }
+      }
+      return dp[m][n];
+    }
+
+    function stringSimilarity(a, b) {
+      const na = normalizeName(a);
+      const nb = normalizeName(b);
+      if (!na && !nb) return 1;
+      if (!na || !nb) return 0;
+      if (na === nb) return 1;
+      const lev = levenshtein(na, nb);
+      const levSim = 1 - (lev / Math.max(na.length, nb.length));
+      const jac = jaccard(tokens(na), tokens(nb));
+      return Math.max(0, Math.min(1, 0.65 * jac + 0.35 * levSim));
+    }
+
+    function inferColumnType(values) {
+      // values: array of non-empty samples (mixed types)
+      const samples = values
+        .filter(v => v !== null && v !== undefined && String(v).trim() !== "")
+        .slice(0, 50);
+      if (samples.length === 0) return "empty";
+
+      let boolOk = 0, numOk = 0, dateOk = 0, textOk = 0;
+
+      for (const v of samples) {
+        if (typeof v === "boolean") { boolOk++; continue; }
+        if (v instanceof Date && !isNaN(v.getTime())) { dateOk++; continue; }
+        const s = String(v).trim();
+        const sl = s.toLowerCase();
+
+        if (["true","false","yes","no","y","n"].includes(sl)) { boolOk++; continue; }
+
+        // number: allow commas/currency
+        const numCandidate = sl.replace(/[$,]/g, "");
+        if (numCandidate !== "" && !isNaN(Number(numCandidate))) { numOk++; continue; }
+
+        // date
+        const t = Date.parse(s);
+        if (!isNaN(t) && /[\/\-]/.test(s)) { dateOk++; continue; }
+
+        textOk++;
+      }
+
+      const total = samples.length;
+      const pct = (x) => x / total;
+
+      if (pct(dateOk) >= 0.7) return "date";
+      if (pct(boolOk) >= 0.7) return "boolean";
+      if (pct(numOk) >= 0.7) return "number";
+      return "string";
+    }
+
+    function fieldGeneralType(fieldType) {
+      const t = String(fieldType || "").toUpperCase();
+      if (!t) return "string";
+      if (t.includes("DATE") || t.includes("TIME")) return "date";
+      if (t.includes("INT") || t.includes("DOUBLE") || t.includes("DECIMAL") || t === "NUMBER") return "number";
+      if (t.includes("BOOL") || t.includes("TINYINT(1)")) return "boolean";
+      if (t.includes("ENUM")) return "enum";
+      return "string";
+    }
+
+    function isRelationshipField(field) {
+      if (!field) return false;
+      if (field.IsRelation) return true;
+      const ft = String(field.FieldType || "").toUpperCase();
+      if (ft === "RELATIONSHIP") return true;
+      const dbt = String(field.DbFieldType || "").toUpperCase();
+      if (dbt === "RELATIONSHIP") return true;
+      return false;
+    }
+
+    function typeCompatibilityScore(colType, fieldType) {
+      const fg = fieldGeneralType(fieldType);
+      if (colType === "empty") return 0.25;
+      if (colType === fg) return 1;
+      if (fg === "string") return 0.75;
+      if (fg === "enum" && (colType === "string" || colType === "number")) return 0.7;
+      if (fg === "number" && colType === "string") return 0.45;
+      if (fg === "date" && colType === "string") return 0.55;
+      if (fg === "boolean" && colType === "number") return 0.6;
+      return 0.15;
+    }
+
+    function bestFieldMatchesForColumn(col, fields, topN = 3) {
+      const scored = fields.map(f => {
+        const nameScore = Math.max(
+          stringSimilarity(col.header, f.Name),
+          stringSimilarity(col.header, f.FieldName)
+        );
+        const typeScore = typeCompatibilityScore(col.inferredType, f.FieldType);
+        const score = 0.78 * nameScore + 0.22 * typeScore;
+        return { field: f, score, nameScore, typeScore };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, topN);
+    }
+
+    function normalizeCellValue(v, targetFieldType) {
+      if (v === null || v === undefined) return "";
+      if (v instanceof Date && !isNaN(v.getTime())) {
+        // Export/import-friendly date format
+        return fmtMmDdYyyy(v);
+      }
+      const fg = fieldGeneralType(targetFieldType);
+      let s;
+      if (typeof v === "object" && v !== null && !(v instanceof Date)) {
+        // Avoid "[object Object]" in exports
+        try {
+          s = JSON.stringify(v);
+        } catch {
+          s = String(v);
+        }
+      } else {
+        s = String(v);
+      }
+      s = s.trim();
+      if (s === "") return "";
+
+      if (fg === "number") {
+        const cleaned = s.replace(/[$,]/g, "");
+        const num = Number(cleaned);
+        return isNaN(num) ? s : String(num);
+      }
+      if (fg === "boolean") {
+        const sl = s.toLowerCase();
+        if (["true","yes","y","1"].includes(sl)) return "true";
+        if (["false","no","n","0"].includes(sl)) return "false";
+        return s;
+      }
+      if (fg === "date") {
+        const t = Date.parse(s);
+        if (!isNaN(t)) return fmtMmDdYyyy(new Date(t));
+        return s;
+      }
+      return s;
+    }
+
+    function isStrictCsvMode() {
+      return $("#strictCsvModeToggle").is(":checked");
+    }
+
+    function isDebugLookupAppendPkMode() {
+      return $("#debugLookupAppendPkToggle").is(":checked");
+    }
+
+    function sanitizeForCsvCell(val, { strict = false, delimiter = "," } = {}) {
+      // Some importers are not RFC4180-compliant and will break if a value contains delimiters/newlines,
+      // even if quoted. "strict" mode strips those characters to prevent column-count mismatches.
+      let s = String(val ?? "");
+      // Normalize all line breaks / separators to spaces
+      s = s.replace(/\r\n|\n|\r|\u2028|\u2029|\u0085/g, " ");
+      // Remove other control characters (except tab)
+      s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+      if (strict) {
+        // Strip delimiter and quotes to avoid naive split-based importers miscounting columns
+        if (delimiter) {
+          const re = new RegExp(`\\${delimiter}`, "g");
+          s = s.replace(re, " ");
+        }
+        // Remove quote characters (some importers treat both ' and " as field delimiters)
+        s = s.replace(/["']/g, "");
+        // Also remove common “smart quotes”
+        s = s.replace(/[“”‘’]/g, "");
+      }
+      // Collapse excessive whitespace
+      s = s.replace(/\s{2,}/g, " ").trim();
+      return s;
+    }
+
+    function buildCsv(rows, { delimiter = ",", strict = false } = {}) {
+      const esc = (val) => {
+        const s = sanitizeForCsvCell(val, { strict, delimiter });
+        // In strict mode we strip commas/quotes so no quoting needed; keep normal quoting otherwise.
+        if (!strict && /[",]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+        return s;
+      };
+      // Use CRLF for maximum compatibility with CSV importers
+      return rows.map(r => r.map(esc).join(delimiter)).join("\r\n");
+    }
+
+    function validateCsvColumnCounts(csvText, { delimiter = "," } = {}) {
+      const lines = String(csvText || "").split(/\r?\n/).filter(l => l.length > 0);
+      if (lines.length === 0) return { ok: true, expectedCols: 0, badLines: [] };
+      const expectedCols = lines[0].split(delimiter).length;
+      const badLines = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(delimiter).length;
+        if (cols !== expectedCols) {
+          badLines.push({ lineNumber: i + 1, cols, expectedCols, preview: lines[i].slice(0, 220) });
+          if (badLines.length >= 10) break;
+        }
+      }
+      return { ok: badLines.length === 0, expectedCols, badLines };
+    }
+
+    function renderCsvPreviewTable(headers, rows, { maxRows = 25 } = {}) {
+      const aoa = [headers, ...(rows || []).slice(0, maxRows)];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      // Use SheetJS to render HTML table (ensures proper header/cell rendering)
+      let html = XLSX.utils.sheet_to_html(ws, { id: "csvPreviewSheet", editable: false });
+      // Add Bootstrap table classes
+      html = html.replace(
+        /<table([^>]*)>/i,
+        '<table$1 class="table table-sm table-hover align-middle mb-0">'
+      );
+      // Remove the default "SheetJS" title row if present (SheetJS wraps with <html><head> sometimes)
+      // sheet_to_html typically returns a complete HTML doc; extract the table only for embedding.
+      const match = html.match(/<table[\s\S]*<\/table>/i);
+      return match ? match[0] : html;
+    }
+
+    function computeMappingDiagnostics() {
+      // Consider only non-ignored columns
+      const mappedEntries = [];
+      for (const [colIdx, fieldName] of columnToField.entries()) {
+        if (!fieldName) continue;
+        if (ignoredColumnIndexes.has(colIdx)) continue;
+        mappedEntries.push([colIdx, fieldName]);
+      }
+
+      const fieldToCols = new Map();
+      for (const [colIdx, fieldName] of mappedEntries) {
+        if (!fieldToCols.has(fieldName)) fieldToCols.set(fieldName, []);
+        fieldToCols.get(fieldName).push(colIdx);
+      }
+
+      const duplicateFields = [];
+      for (const [fieldName, cols] of fieldToCols.entries()) {
+        if (cols.length > 1) duplicateFields.push(fieldName);
+      }
+
+      return {
+        mappedCount: mappedEntries.length,
+        duplicateFields,
+        hasDuplicateMappings: duplicateFields.length > 0,
+      };
+    }
+
+    function renderExportReadiness({ hasFile, hasTable, hasFields, mappedCount, hasDuplicateMappings, duplicateFields }) {
+      const checks = [
+        { ok: hasFile, label: "File loaded (Step 1)" },
+        { ok: hasTable, label: "Target table selected (Step 2)" },
+        { ok: hasFields, label: "Table fields loaded (Step 2)" },
+        { ok: mappedCount > 0, label: "At least one column is mapped & included (Step 3)" },
+        { ok: !hasDuplicateMappings, label: "No duplicate target field mappings (Step 3)" },
+      ];
+
+      const allOk = checks.every(c => c.ok);
+      const header = allOk
+        ? `<div class="alert alert-success mb-0"><i class="bi bi-check2-circle me-2"></i>Ready to Preview / Download</div>`
+        : `<div class="alert alert-warning mb-0"><i class="bi bi-info-circle me-2"></i>Preview / Download is disabled until these are satisfied:</div>`;
+
+      const list = `
+        <ul class="small mb-0 mt-2">
+          ${checks
+            .map(c => `<li>${c.ok ? `<span class="text-success fw-semibold">✓</span>` : `<span class="text-danger fw-semibold">✕</span>`} ${escapeHtml(c.label)}</li>`)
+            .join("")}
+        </ul>
+      `;
+
+      const dupNote = hasDuplicateMappings
+        ? `<div class="small text-danger mt-2"><i class="bi bi-exclamation-triangle me-1"></i>Duplicate target fields: ${duplicateFields.map(escapeHtml).join(", ")}</div>`
+        : "";
+
+      const debugNote = isDebugLookupAppendPkMode()
+        ? `<div class="small text-muted mt-2"><i class="bi bi-bug me-1"></i>Debug lookup mode is ON: export will append <code>__lookup_id</code>/<code>__lookup_status</code> columns and may not be importable as-is.</div>`
+        : "";
+
+      $("#exportReadiness").html(`${header}${list}${dupNote}${debugNote}`);
+    }
+
+    function getMappedEnumFieldNames() {
+      const fieldByFieldName = new Map(tableFields.map(f => [f.FieldName, f]));
+      const fieldNames = [];
+      for (const [colIdx, fieldName] of columnToField.entries()) {
+        if (!fieldName) continue;
+        if (ignoredColumnIndexes.has(colIdx)) continue;
+        if (lookupRules.has(fieldName)) continue; // lookup rules handle relationship values, not enum dropdowns
+        const f = fieldByFieldName.get(fieldName);
+        if (!f) continue;
+        if (fieldGeneralType(f.FieldType) !== "enum") continue;
+        fieldNames.push(fieldName);
+      }
+      return [...new Set(fieldNames)].sort((a, b) => String(a).localeCompare(String(b)));
+    }
+
+    function renderEnumValidationSummary(enumStats) {
+      const mappedEnumFields = getMappedEnumFieldNames();
+      const hasStats = enumStats && (enumStats instanceof Map) && enumStats.size > 0;
+
+      if (!hasStats) {
+        // Only show a hint if the user has mapped at least one enum field.
+        if (!mappedEnumFields.length) {
+          $("#enumValidationSummary").html("");
+          return;
+        }
+        $("#enumValidationSummary").html(`
+          <div class="alert alert-light border mb-0">
+            <div class="fw-semibold mb-1"><i class="bi bi-list-check me-2"></i>Enum value validation</div>
+            <div class="small text-muted">
+              Detected mapped enum field(s): ${mappedEnumFields.map(f => `<code>${escapeHtml(f)}</code>`).join(" ")}.
+              Run <strong>Validate Lookups</strong> / <strong>Validate Enrichment</strong> (or <strong>Preview CSV</strong> / <strong>Download CSV</strong>) to run validation and see mismatches/conversions.
+            </div>
+          </div>
+        `);
+        return;
+      }
+
+      const rows = [];
+      for (const [fieldName, s] of enumStats.entries()) {
+        const hasFixes = (enumValueFixesByFieldName.get(fieldName)?.size || 0) > 0;
+        rows.push(`
+          <tr>
+            <td class="mono">${escapeHtml(fieldName)}</td>
+            <td class="text-end">${s.provided}</td>
+            <td class="text-end"><span class="badge bg-success pill">${s.matched}</span></td>
+            <td class="text-end"><span class="badge bg-primary pill">${s.converted}</span></td>
+            <td class="text-end"><span class="badge bg-info pill">${s.overrides || 0}</span></td>
+            <td class="text-end"><span class="badge bg-danger pill">${s.unmatched}</span></td>
+            <td class="text-end">${s.blank}</td>
+            <td class="text-end">
+              <div class="d-flex justify-content-end gap-2 flex-wrap">
+                ${s.unmatchedValues && s.unmatchedValues.size
+                  ? `<button class="btn btn-sm btn-outline-primary open-enum-fix-btn" data-field-name="${escapeHtml(fieldName)}">
+                       <i class="bi bi-wrench-adjustable me-1"></i>Fix unmatched
+                     </button>
+                     <button class="btn btn-sm btn-outline-secondary download-enum-unmatched-btn" data-field-name="${escapeHtml(fieldName)}">
+                       <i class="bi bi-download me-1"></i>Unmatched list
+                     </button>`
+                  : (hasFixes
+                      ? `<button class="btn btn-sm btn-outline-secondary open-enum-fix-btn" data-field-name="${escapeHtml(fieldName)}">
+                           <i class="bi bi-wrench-adjustable me-1"></i>View fixes
+                         </button>`
+                      : `<span class="text-muted">—</span>`)}
+              </div>
+            </td>
+          </tr>
+        `);
+      }
+
+      $("#enumValidationSummary").html(`
+        <div class="alert alert-light border mb-0">
+          <div class="fw-semibold mb-2"><i class="bi bi-list-check me-2"></i>Enum value validation</div>
+          <div class="small text-muted mb-2">
+            For mapped <code>ENUM</code>/<code>ENUM2</code> fields, we load allowed dropdown values and try to reconcile your file values.
+            “Converted” includes abbreviation matches (e.g., <code>NC</code> → <code>North Carolina</code>).
+            “Overrides” are your Find/Replace fixes.
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Field</th>
+                  <th class="text-end">Provided</th>
+                  <th class="text-end">Matched</th>
+                  <th class="text-end">Converted</th>
+                  <th class="text-end">Overrides</th>
+                  <th class="text-end">Unmatched</th>
+                  <th class="text-end">Blank</th>
+                  <th class="text-end">Export</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `);
+    }
+
+    function setTechnicalMode(on) {
+      $("#fileDebug").toggleClass("d-none", !on);
+    }
+
+    function setDebug(obj) {
+      $("#debugText").text(JSON.stringify(obj, null, 2));
+    }
+
+    function setProgress(isOn, label = "", current = 0, total = 0) {
+      $("#progressBarWrap").toggleClass("d-none", !isOn);
+      if (!isOn) return;
+      $("#progressLabel").text(label || "Working...");
+      $("#progressCounts").text(`${current}/${total}`);
+      const pct = total ? Math.round((current / total) * 100) : 0;
+      $("#progressFill").css("width", pct + "%");
+    }
+
+    function showAppMessage({ title = "Message", html = "" } = {}) {
+      $("#appMsgTitle").text(title);
+      $("#appMsgBody").html(html);
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("appMsgModal")).show();
+    }
+
+    function showAppConfirm({ title = "Confirm", html = "", confirmText = "Confirm", confirmClass = "btn-primary" } = {}) {
+      $("#appConfirmTitle").text(title);
+      $("#appConfirmBody").html(html);
+      const $ok = $("#appConfirmOkBtn");
+      $ok.text(confirmText).attr("class", `btn ${confirmClass}`);
+
+      const modalEl = document.getElementById("appConfirmModal");
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+      return new Promise((resolve) => {
+        appConfirmResolver = resolve;
+        modal.show();
+      });
+    }
+
+    // -----------------------------
+    // File handling (SheetJS)
+    // -----------------------------
+    async function readExcelFile(file) {
+      const buf = await file.arrayBuffer();
+      workbook = XLSX.read(buf, { type: "array", cellDates: true });
+      activeSheetName = workbook.SheetNames[0] || null;
+      $("#fileSheetsCount").text(workbook.SheetNames.length);
+
+      // Populate sheet picker
+      $("#sheetSelect").empty();
+      workbook.SheetNames.forEach(name => {
+        $("#sheetSelect").append(`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`);
+      });
+      $("#sheetSelect").val(activeSheetName);
+      $("#sheetControls").removeClass("d-none");
+      $("#filePreview").removeClass("d-none");
+
+      loadActiveSheet();
+    }
+
+    function loadActiveSheet() {
+      if (!workbook || !activeSheetName) return;
+      const ws = workbook.Sheets[activeSheetName];
+      sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+      renderPreview();
+      computeColumns();
+      renderEnrichRulesTable();
+      updateActionButtons();
+
+      setDebug({
+        apiBase: API_BASE,
+        hasUserToken: !!userToken,
+        activeSheetName,
+        totalRows: sheetRows.length,
+      });
+    }
+
+    function renderPreview() {
+      const headerRow = Math.max(1, Number($("#headerRowInput").val() || 1)) - 1;
+      const startRow = Math.min(Math.max(0, headerRow), Math.max(0, sheetRows.length - 1));
+
+      // Include header row + first 10 data rows (so header doesn't repeat as row 1)
+      const maxDataRows = 10;
+      const maxRows = Math.min(1 + maxDataRows, Math.max(0, sheetRows.length - startRow));
+      const preview = sheetRows.slice(startRow, startRow + maxRows);
+
+      const rawColCount = Math.max(0, ...preview.map(r => Array.isArray(r) ? r.length : 0));
+
+      // Only show columns that are actually populated in the preview window (header row + first rows).
+      const visibleCols = [];
+      for (let c = 0; c < rawColCount; c++) {
+        const hasValue = preview.some(row => {
+          const v = (row || [])[c];
+          return v !== null && v !== undefined && String(v).trim() !== "";
+        });
+        if (hasValue) visibleCols.push(c);
+      }
+
+      $("#detectedColCount").text(visibleCols.length);
+
+      // header labels: use the selected header row (first preview row), fallback to C#
+      const header = preview[0] || [];
+      let th = "<tr>";
+      const maxShow = 18;
+      for (let i = 0; i < Math.min(visibleCols.length, maxShow); i++) {
+        const c = visibleCols[i];
+        const label = String(header[c] ?? "").trim() || `C${c + 1}`;
+        th += `<th>${escapeHtml(label)}</th>`;
+      }
+      if (visibleCols.length > maxShow) th += `<th class="text-muted">…</th>`;
+      th += "</tr>";
+      $("#previewHead").html(th);
+
+      // body
+      const tbody = [];
+      // Skip preview[0] because it's the header row already rendered in <thead>
+      for (let r = 1; r < preview.length; r++) {
+        const row = preview[r] || [];
+        let tr = "<tr>";
+        for (let i = 0; i < Math.min(visibleCols.length, maxShow); i++) {
+          const c = visibleCols[i];
+          tr += `<td>${escapeHtml(formatCellForDisplay(row[c]))}</td>`;
+        }
+        if (visibleCols.length > maxShow) tr += `<td class="text-muted">…</td>`;
+        tr += "</tr>";
+        tbody.push(tr);
+      }
+      $("#previewBody").html(tbody.join(""));
+    }
+
+    function computeColumns() {
+      const headerRow = Math.max(1, Number($("#headerRowInput").val() || 1)) - 1;
+      const dataStart = Math.max(1, Number($("#dataStartRowInput").val() || 2)) - 1;
+      const header = sheetRows[headerRow] || [];
+
+      const maxCol = Math.max(header.length, ...sheetRows.slice(dataStart, dataStart + 10).map(r => (r || []).length));
+      const cols = [];
+
+      for (let i = 0; i < maxCol; i++) {
+        const h = String(header[i] ?? "").trim() || `Column ${i + 1}`;
+        const samples = [];
+        for (let r = dataStart; r < Math.min(sheetRows.length, dataStart + 30); r++) {
+          const v = (sheetRows[r] || [])[i];
+          if (v !== null && v !== undefined && String(v).trim() !== "") samples.push(v);
+          if (samples.length >= 6) break;
+        }
+        const typeSamples = [];
+        for (let r = dataStart; r < Math.min(sheetRows.length, dataStart + 60); r++) {
+          const v = (sheetRows[r] || [])[i];
+          if (v !== null && v !== undefined && String(v).trim() !== "") typeSamples.push(v);
+          if (typeSamples.length >= 50) break;
+        }
+        cols.push({
+          index: i,
+          header: h,
+          normHeader: normalizeName(h),
+          inferredType: inferColumnType(typeSamples),
+          samples,
+        });
+      }
+      fileColumns = cols.filter(c => c.normHeader !== "" || c.samples.length > 0);
+
+      // Prune ignored columns that no longer exist in current sheet/selection
+      const existing = new Set(fileColumns.map(c => c.index));
+      ignoredColumnIndexes = new Set([...ignoredColumnIndexes].filter(i => existing.has(i)));
+    }
+
+    // -----------------------------
+    // Tables/Fields
+    // -----------------------------
+    async function loadTablesForAppKey(appKey) {
+      const resp = await apiGet("/api/applicationtable/getbyapplicationid", { id: appKey });
+      tables = Array.isArray(resp) ? resp : [];
+      tables.sort((a, b) => String(a.Name || "").localeCompare(String(b.Name || "")));
+      $("#tableSelect").prop("disabled", false).empty().append(`<option value="">— Select a table —</option>`);
+      for (const t of tables) {
+        // Note: <option> doesn't support HTML children; keep this as plain text.
+        $("#tableSelect").append(`<option value="${escapeHtml(t.Key)}" data-name="${escapeHtml(t.Name)}">${escapeHtml(t.Name)} (${escapeHtml(t.Key)})</option>`);
+      }
+      $("#tableInfo").removeClass("d-none");
+      $("#autoDetectTableBtn").prop("disabled", !(fileColumns.length > 0 && tables.length > 0));
+      updateActionButtons();
+    }
+
+    async function loadFieldsForTableKey(tableKey) {
+      const resp = await apiGet("/api/Field/getbytableid", { id: tableKey });
+      tableFields = Array.isArray(resp) ? resp : [];
+      tableFields = tableFields.map(f => ({
+        ...f,
+        Name: String(f.Name || "").trim(),
+        FieldName: String(f.FieldName || "").trim(),
+        FieldType: String(f.FieldType || "").trim(),
+      })).filter(f => !!f.FieldName);
+      $("#selectedFieldsCount").text(tableFields.length);
+
+      updateActionButtons();
+      renderMappingTable();
+      renderEnrichRulesTable();
+    }
+
+    async function loadFieldsForTableKeyCached(tableKey) {
+      const key = String(tableKey || "").trim();
+      if (!key) return [];
+      if (fieldsByTableKey.has(key)) return fieldsByTableKey.get(key) || [];
+      const resp = await apiGet("/api/Field/getbytableid", { id: key });
+      const fields = (Array.isArray(resp) ? resp : [])
+        .map(f => ({
+          ...f,
+          Name: String(f.Name || "").trim(),
+          FieldName: String(f.FieldName || "").trim(),
+          FieldType: String(f.FieldType || "").trim(),
+        }))
+        .filter(f => !!f.FieldName);
+      fieldsByTableKey.set(key, fields);
+      return fields;
+    }
+
+    async function suggestTableFromFileHeaders() {
+      if (!tables.length || !fileColumns.length) return;
+
+      const $btn = $("#autoDetectTableBtn");
+      const originalHtml = $btn.html();
+      $btn.prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-2"></span>Suggesting...`);
+
+      try {
+        const sheetName = String(activeSheetName || "").trim();
+        const candidateHeaders = fileColumns
+          .filter(c => !ignoredColumnIndexes.has(c.index))
+          .map(c => c.header)
+          .filter(Boolean);
+
+        if (!candidateHeaders.length) return;
+
+        // Phase 1: shortlist tables by name proximity (sheet name + header words)
+        const shortlistSize = 10;
+        const rankedByName = tables
+          .map(t => {
+            const headerNameSim = Math.max(...candidateHeaders.map(h => stringSimilarity(h, t.Name)));
+            const sheetSim = sheetName ? stringSimilarity(sheetName, t.Name) : 0;
+            const nameScore = Math.max(headerNameSim, sheetSim);
+            return { table: t, nameScore, headerNameSim, sheetSim };
+          })
+          .sort((a, b) => b.nameScore - a.nameScore)
+          .slice(0, shortlistSize);
+
+        // Phase 2: for shortlist, fetch fields and score header->field coverage
+        const headerThreshold = 0.72;
+        let best = null;
+
+        for (let i = 0; i < rankedByName.length; i++) {
+          const candidate = rankedByName[i];
+          const t = candidate.table;
+          const fields = await loadFieldsForTableKeyCached(t.Key);
+          if (!fields.length) continue;
+
+          // For each file header, find best match among fields (Name or FieldName)
+          const perHeaderBest = candidateHeaders.map(h => {
+            let bestSim = 0;
+            for (const f of fields) {
+              const s = Math.max(stringSimilarity(h, f.Name), stringSimilarity(h, f.FieldName));
+              if (s > bestSim) bestSim = s;
+              if (bestSim >= 0.98) break;
+            }
+            return bestSim;
+          });
+
+          const matchedCount = perHeaderBest.filter(s => s >= headerThreshold).length;
+          const coverage = candidateHeaders.length ? matchedCount / candidateHeaders.length : 0;
+          const avgBest = perHeaderBest.length ? (perHeaderBest.reduce((a, b) => a + b, 0) / perHeaderBest.length) : 0;
+          const sheetSim = candidate.sheetSim;
+
+          // Weighted score: emphasize field coverage (prevents “Project Notes” from winning just because header contains "notes")
+          const totalScore = 0.58 * coverage + 0.27 * avgBest + 0.15 * sheetSim;
+
+          const debug = {
+            tableName: t.Name,
+            tableKey: t.Key,
+            totalScore,
+            coverage,
+            avgBest,
+            matchedCount,
+            headers: candidateHeaders.length,
+            sheetSim,
+            nameScore: candidate.nameScore,
+          };
+
+          if ($("#technicalModeToggle").is(":checked")) {
+            console.log("[suggest-table] candidate:", debug);
+          }
+
+          if (!best || totalScore > best.totalScore) {
+            best = { table: t, totalScore, debug };
+          }
+        }
+
+        if (best?.table) {
+          if ($("#technicalModeToggle").is(":checked")) {
+            console.log("[suggest-table] selected:", best.debug);
+          }
+          $("#tableSelect").val(best.table.Key).trigger("change");
+        } else {
+          alert("No strong table match found. Please choose a table manually.");
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Failed to suggest table. Check console for details.");
+      } finally {
+        $btn.prop("disabled", false).html(originalHtml);
+      }
+    }
+
+    // -----------------------------
+    // Mapping UI
+    // -----------------------------
+    function renderMappingTable() {
+      if (!fileColumns.length || !tableFields.length) {
+        $("#mappingTableBody").html(`<tr><td colspan="6" class="text-muted">Upload a file and load a table to generate mapping suggestions.</td></tr>`);
+        $("#mappingSummary").addClass("d-none");
+        return;
+      }
+
+      const showIgnored = $("#showIgnoredColumnsToggle").is(":checked");
+
+      // Precompute winners for duplicates (export uses the right-most column index as the winner)
+      const fieldToWinningCol = new Map();
+      for (const [colIdx, fieldName] of columnToField.entries()) {
+        if (!fieldName) continue;
+        const prev = fieldToWinningCol.get(fieldName);
+        if (prev === undefined || colIdx > prev) fieldToWinningCol.set(fieldName, colIdx);
+      }
+
+      const rows = [];
+      for (const col of fileColumns) {
+        const isIgnored = ignoredColumnIndexes.has(col.index);
+        if (isIgnored && !showIgnored) continue;
+
+        const matches = bestFieldMatchesForColumn(col, tableFields, 3);
+        const best = matches[0] || null;
+        const mappedValue = columnToField.get(col.index) || "";
+        const selected = isIgnored ? "" : mappedValue;
+        const isMapped = !!mappedValue;
+        const dupWinner = selected ? fieldToWinningCol.get(selected) : undefined;
+        const isDuplicateLoser = isMapped && selected && dupWinner !== undefined && dupWinner !== col.index;
+        const isSuggested = !isIgnored && !isMapped && !!best;
+
+        const options = [];
+        options.push(`<option value="">— Not mapped —</option>`);
+        for (const f of tableFields) {
+          const label = `${f.Name || f.FieldName}  [${f.FieldName || "?"}] · ${f.FieldType || "?"}`;
+          options.push(`<option value="${escapeHtml(f.FieldName)}" ${selected === f.FieldName ? "selected" : ""}>${escapeHtml(label)}</option>`);
+        }
+
+        const conf = best ? Math.round(best.score * 100) : 0;
+        const confBadge = conf >= 85 ? "bg-success" : (conf >= 65 ? "bg-warning text-dark" : "bg-danger");
+        const sampleText = (col.samples || []).slice(0, 3).map(v => formatCellForDisplay(v)).join(" · ") || "—";
+
+        const suggestLine = best
+          ? `<div class="small text-muted d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                <div>
+                  Suggestion: <span class="mono">${escapeHtml(best.field.FieldName)}</span>
+                </div>
+                ${isSuggested
+                  ? `<button class="btn btn-sm btn-outline-primary approve-suggest-btn" type="button" data-col-index="${col.index}" data-field-name="${escapeHtml(best.field.FieldName)}" title="Approve this suggested mapping">
+                       <i class="bi bi-check2-circle me-1"></i>Approve
+                     </button>`
+                  : ``}
+              </div>`
+          : `<div class="small text-muted">No suggestion.</div>`;
+
+        const rowClass = isIgnored ? 'table-secondary' : '';
+        const ignoreBtn = isIgnored
+          ? `<button class="btn btn-sm btn-outline-primary toggle-ignore-btn" data-col-index="${col.index}" title="Unignore column"><i class="bi bi-arrow-counterclockwise"></i></button>`
+          : `<button class="btn btn-sm btn-outline-danger toggle-ignore-btn" data-col-index="${col.index}" title="Ignore column"><i class="bi bi-ban"></i></button>`;
+
+        const statusBadge = (() => {
+          if (isIgnored) return `<span class="badge bg-secondary pill">Ignored</span>`;
+          if (!isMapped && isSuggested) return `<span class="badge bg-warning text-dark pill" title="A suggestion is shown, but it isn't committed yet. Click Approve to include it.">Suggested</span>`;
+          if (!isMapped) return `<span class="badge bg-light text-dark pill border">Unmapped</span>`;
+          if (isDuplicateLoser) return `<span class="badge bg-danger pill" title="This column is mapped to a field that is also mapped by another column. Only the right-most column is used in export.">Duplicate</span>`;
+          return `<span class="badge bg-success pill">Included</span>`;
+        })();
+
+        rows.push(`
+          <tr data-col-index="${col.index}" class="${rowClass}">
+            <td>
+              <div class="fw-semibold">${escapeHtml(col.header)}</div>
+              <div class="small text-muted mono">${escapeHtml(col.normHeader)}</div>
+              <div class="mt-2">${statusBadge}</div>
+            </td>
+            <td>
+              <span class="badge bg-secondary pill">${escapeHtml(col.inferredType)}</span>
+            </td>
+            <td>
+              <select class="form-select form-select-sm mapping-select" data-col-index="${col.index}" ${isIgnored ? "disabled" : ""}>
+                ${options.join("")}
+              </select>
+              ${suggestLine}
+            </td>
+            <td>
+              ${best ? `<span class="badge ${confBadge} pill">${conf}%</span>` : `<span class="text-muted">—</span>`}
+            </td>
+            <td class="small text-muted">${escapeHtml(sampleText)}</td>
+            <td class="text-end">${ignoreBtn}</td>
+          </tr>
+        `);
+      }
+      $("#mappingTableBody").html(rows.join(""));
+      $(".mapping-select").off("change").on("change", function() {
+        const colIndex = Number($(this).data("col-index"));
+        const fieldName = String($(this).val() || "");
+        if (fieldName) columnToField.set(colIndex, fieldName);
+        else columnToField.delete(colIndex);
+        // Re-render so the row status badge (Unmapped/Included/Duplicate) updates immediately
+        renderMappingTable();
+        updateActionButtons();
+      });
+
+      $(".approve-suggest-btn").off("click").on("click", function() {
+        const colIndex = Number($(this).data("col-index"));
+        const fieldName = String($(this).data("field-name") || "");
+        if (!colIndex && colIndex !== 0) return;
+        if (!fieldName) return;
+        columnToField.set(colIndex, fieldName);
+        renderMappingTable();
+        updateActionButtons();
+      });
+
+      $(".toggle-ignore-btn").off("click").on("click", function() {
+        const colIndex = Number($(this).data("col-index"));
+        if (ignoredColumnIndexes.has(colIndex)) {
+          ignoredColumnIndexes.delete(colIndex);
+        } else {
+          ignoredColumnIndexes.add(colIndex);
+          // If ignoring, drop any mapping for that column
+          columnToField.delete(colIndex);
+        }
+        renderMappingTable();
+        updateActionButtons();
+        renderMappingSummary();
+      });
+
+      renderMappingSummary();
+    }
+
+    function renderMappingSummary() {
+      if (!fileColumns.length || !tableFields.length) {
+        $("#mappingSummary").addClass("d-none");
+        return;
+      }
+      const diag = computeMappingDiagnostics();
+      const mappedCount = diag.mappedCount;
+      const ignoredCount = ignoredColumnIndexes.size;
+      const consideredTotal = Math.max(0, fileColumns.length - ignoredCount);
+
+      hasDuplicateMappings = diag.hasDuplicateMappings;
+
+      const dupNote = diag.duplicateFields.length
+        ? `<div class="small text-danger mt-1">
+             <i class="bi bi-exclamation-triangle me-1"></i>
+             Duplicate target fields detected: ${diag.duplicateFields.map(escapeHtml).join(", ")}.
+             These are <strong>ambiguous</strong> (multiple file columns mapped to the same system field). Please fix duplicates before exporting/importing.
+           </div>`
+        : "";
+
+      $("#mappingSummary")
+        .removeClass("d-none")
+        .html(`
+          <div class="alert alert-light border mb-0">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div class="fw-semibold">
+                Mapped <span class="badge bg-primary pill">${mappedCount}/${consideredTotal}</span> columns
+                ${ignoredCount ? `<span class="badge bg-secondary pill ms-2">${ignoredCount} ignored</span>` : ``}
+                ${diag.duplicateFields.length ? `<span class="badge bg-danger pill ms-2">${diag.duplicateFields.length} duplicate field(s)</span>` : ``}
+              </div>
+              <div class="small text-muted">Next: export CSV or import via postdata</div>
+            </div>
+            ${dupNote}
+          </div>
+        `);
+    }
+
+    function autoMap() {
+      columnToField.clear();
+      for (const col of fileColumns) {
+        if (ignoredColumnIndexes.has(col.index)) continue;
+        const best = bestFieldMatchesForColumn(col, tableFields, 1)[0];
+        if (best && best.score >= 0.62) columnToField.set(col.index, best.field.FieldName);
+      }
+      renderMappingTable();
+      updateActionButtons();
+    }
+
+    function clearMapping() {
+      columnToField.clear();
+      ignoredColumnIndexes.clear();
+      renderMappingTable();
+      updateActionButtons();
+    }
+
+    // -----------------------------
+    // Lookups (Crosswalk)
+    // -----------------------------
+    async function ensureLookupCachesBuilt() {
+      const rules = Array.from(lookupRules.entries());
+      if (!rules.length) return;
+
+      // Fetch each unique report once
+      const uniqueReportIds = [...new Set(rules.map(([_, r]) => r.reportId).filter(Boolean))];
+      for (let i = 0; i < uniqueReportIds.length; i++) {
+        const reportId = uniqueReportIds[i];
+        if (!lookupCaches.has(reportId)) {
+          setProgress(true, `Loading lookup report ${reportId}…`, i, uniqueReportIds.length);
+          const rows = await queryReport(reportId);
+          lookupCaches.set(reportId, { rows: Array.isArray(rows) ? rows : [], indexes: new Map() });
+        }
+      }
+      setProgress(false);
+
+      // Build per-rule indexes
+      for (const [targetFieldName, rule] of lookupRules.entries()) {
+        const cache = lookupCaches.get(rule.reportId);
+        if (!cache) continue;
+        if (!cache.indexes) cache.indexes = new Map();
+        if (cache.indexes.has(targetFieldName)) continue;
+        const exact = new Map();
+        const entries = []; // for substring fallback: [{ k, returnVal }]
+        for (const row of cache.rows) {
+          const rawKey = row ? row[rule.matchColumnKey] : null;
+          const rawReturn = row ? row[rule.returnColumnKey] : null;
+          const k = normalizeLookupKey(rawKey, rule.matchNormalizeMode);
+          if (!k) continue;
+          const returnValOk = rawReturn !== undefined && rawReturn !== null && String(rawReturn).trim() !== "";
+          if (!returnValOk) continue;
+
+          if (!exact.has(k)) {
+            exact.set(k, rawReturn);
+          }
+          // Keep unique normalized keys for substring scan
+          if (entries.length < 200000) entries.push({ k, returnVal: rawReturn });
+        }
+        cache.indexes.set(targetFieldName, { exact, entries });
+      }
+    }
+
+    function phraseContains(haystack, needle) {
+      const h = String(haystack || "").trim();
+      const n = String(needle || "").trim();
+      if (!h || !n) return false;
+      // Whole-phrase match on whitespace boundaries (helps avoid accidental sub-word matches)
+      return (` ${h} `).includes(` ${n} `);
+    }
+
+    function lookupSubstringFallback({ fileKey, idxObj }) {
+      const fk = String(fileKey || "").trim();
+      if (!fk) return { found: null, matchKind: "none" };
+      if (!idxObj || !(idxObj.entries || Array.isArray(idxObj.entries))) return { found: null, matchKind: "none" };
+
+      // Only attempt fallback for “meaningful” keys to reduce false positives
+      const hasSpecial = /[&\-\d]/.test(fk);
+      const tokenCount = fk.split(" ").filter(Boolean).length;
+      if (!hasSpecial && tokenCount < 2 && fk.length < 5) return { found: null, matchKind: "none" };
+
+      // Candidate: report key is a phrase inside the file key (PB&J Construction contains PB&J)
+      // Also allow reverse containment for cases where the file is shorter than the report output.
+      const candidates = [];
+      for (const e of idxObj.entries) {
+        const rk = String(e?.k || "").trim();
+        const rv = e?.returnVal;
+        if (!rk) continue;
+        if (rk === fk) continue; // exact handled elsewhere
+
+        const rkHasSpecial = /[&\-\d]/.test(rk);
+        const rkTokenCount = rk.split(" ").filter(Boolean).length;
+        if (!rkHasSpecial && rkTokenCount < 2 && rk.length < 4) continue;
+
+        if (phraseContains(fk, rk) || phraseContains(rk, fk)) {
+          candidates.push({ rk, rv });
+        }
+      }
+
+      if (!candidates.length) return { found: null, matchKind: "none" };
+
+      // Prefer the most specific (longest) key; only accept if unambiguous.
+      candidates.sort((a, b) => String(b.rk).length - String(a.rk).length);
+      const bestLen = String(candidates[0].rk).length;
+      const best = candidates.filter(c => String(c.rk).length === bestLen);
+      const uniqueReturns = [...new Set(best.map(x => String(x.rv ?? "").trim()).filter(Boolean))];
+      if (uniqueReturns.length === 1) return { found: uniqueReturns[0], matchKind: "substring" };
+
+      return { found: null, matchKind: "ambiguous" };
+    }
+
+    async function ensureEnrichCachesBuilt() {
+      // Load report rows for each reportId in enrichRules
+      const uniqueReportIds = [...new Set(enrichRules.map(r => r.reportId).filter(Boolean))];
+      if (!uniqueReportIds.length) return;
+
+      for (const reportId of uniqueReportIds) {
+        if (enrichCaches.has(reportId)) continue;
+        try {
+          setProgress(true, `Loading report ${reportId}…`, 0, 1);
+          const rows = await queryReport(reportId);
+          enrichCaches.set(reportId, { rows: Array.isArray(rows) ? rows : [], indexes: new Map() });
+        } catch (e) {
+          console.warn("Failed to load enrichment report", reportId, e);
+          enrichCaches.set(reportId, { rows: [], indexes: new Map(), error: e });
+        } finally {
+          setProgress(false);
+        }
+      }
+
+      // Build per-rule indexes
+      for (const rule of enrichRules) {
+        const cache = enrichCaches.get(rule.reportId);
+        if (!cache) continue;
+        if (!cache.indexes) cache.indexes = new Map();
+        if (cache.indexes.has(rule.id)) continue;
+        const idx = new Map();
+        for (const row of cache.rows) {
+          const rawKey = row ? row[rule.matchColumnKey] : null;
+          const k = normalizeLookupKey(rawKey, rule.matchNormalizeMode);
+          if (!k) continue;
+          // last wins (ok for enrichment)
+          idx.set(k, row);
+        }
+        cache.indexes.set(rule.id, idx);
+      }
+    }
+
+    // -----------------------------
+    // Export / Import
+    // -----------------------------
+    async function buildNormalizedRows({ lookupExportMode = "importReady" } = {}) {
+      const headerRow = Math.max(1, Number($("#headerRowInput").val() || 1)) - 1;
+      const dataStart = Math.max(1, Number($("#dataStartRowInput").val() || 2)) - 1;
+      const mapped = Array.from(columnToField.entries()).filter(([_, f]) => !!f);
+      if (!mapped.length) return { headers: [], rows: [] };
+
+      // Stable order: by file column order
+      mapped.sort((a, b) => a[0] - b[0]);
+
+      // De-dupe headers: if multiple file columns map to the same field, keep the LAST mapped column as the source.
+      const fieldToColIndex = new Map(); // fieldName -> colIndex (last wins)
+      const headers = []; // preserve first-seen order
+      for (const [colIdx, fieldName] of mapped) {
+        if (!fieldToColIndex.has(fieldName)) headers.push(fieldName);
+        fieldToColIndex.set(fieldName, colIdx);
+      }
+      const fieldByFieldName = new Map(tableFields.map(f => [f.FieldName, f]));
+
+      const lookupTargetsInExport = headers.filter(h => lookupRules.has(h));
+      const lookupDebugHeaders = [];
+      if (lookupExportMode === "debugAppendPk") {
+        // Append lookup PK + status columns for each lookup target field
+        for (const fieldName of lookupTargetsInExport) {
+          lookupDebugHeaders.push(`${fieldName}__lookup_id`);
+          lookupDebugHeaders.push(`${fieldName}__lookup_status`);
+        }
+      }
+
+      // Enrichment append headers (always append; does not overwrite mapped fields)
+      const enrichAppendHeaders = [];
+      for (const rule of enrichRules) {
+        const prefix = String(rule.outputPrefix || rule.name || "enrich").trim() || "enrich";
+        const safePrefix = prefix.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "_");
+        const idHeader = String(rule.idOutputHeader || "").trim() || `${safePrefix}__db_id`;
+        enrichAppendHeaders.push(idHeader);
+        if (rule.returnColumnKey) {
+          enrichAppendHeaders.push(`${safePrefix}__db_${String(rule.returnColumnKey).trim()}`);
+        }
+      }
+
+      const rows = [];
+      const missingLookups = new Map(); // targetFieldName -> Set(missingKeys)
+      const lookupStats = new Map(); // targetFieldName -> { totalRows, provided, matched, missing, blank, missingKeys:Set }
+      const enumStats = new Map(); // fieldName -> { provided, matched, converted, unmatched, blank, unmatchedValues:Set, unmatchedCounts:Map, overrides:number }
+      const enrichStats = new Map(); // ruleId -> { total, matched, missing, blank }
+
+      await ensureLookupCachesBuilt();
+      await ensureEnrichCachesBuilt();
+
+      // Preload dropdowns for enum fields that are present in export headers
+      const enumDropdownByFieldName = new Map(); // fieldName -> dropdownEntry|null
+      for (const fieldName of headers) {
+        if (lookupRules.has(fieldName)) continue;
+        const f = fieldByFieldName.get(fieldName);
+        if (!f) continue;
+        if (fieldGeneralType(f.FieldType) !== "enum") continue;
+        const fieldKey = String(f.Key || f.FieldKey || "").trim();
+        if (!fieldKey) {
+          enumDropdownByFieldName.set(fieldName, null);
+          continue;
+        }
+        try {
+          const entry = await loadDropdownValuesForFieldKeyCached(fieldKey);
+          enumDropdownByFieldName.set(fieldName, entry);
+        } catch (e) {
+          console.warn("Failed to load dropdown values for field", fieldName, fieldKey, e);
+          enumDropdownByFieldName.set(fieldName, null);
+        }
+      }
+
+      for (let r = dataStart; r < sheetRows.length; r++) {
+        const row = sheetRows[r] || [];
+        // Skip completely empty rows
+        const any = row.some(v => String(v ?? "").trim() !== "");
+        if (!any) continue;
+
+        const out = new Array(headers.length + lookupDebugHeaders.length + enrichAppendHeaders.length).fill("");
+        for (let i = 0; i < headers.length; i++) {
+          const fieldName = headers[i];
+          const f = fieldByFieldName.get(fieldName);
+
+          const rule = lookupRules.get(fieldName);
+          if (rule) {
+            const raw = row[rule.sourceColIndex];
+            const k = normalizeLookupKey(raw, rule.matchNormalizeMode);
+            const cache = lookupCaches.get(rule.reportId);
+            const idxObj = cache?.indexes?.get(fieldName);
+            const exact = (idxObj instanceof Map) ? idxObj : idxObj?.exact;
+            let found = exact?.get(k);
+            let matchKind = "exact";
+            if ((found === undefined || found === null || String(found).trim() === "") && k) {
+              const fb = lookupSubstringFallback({ fileKey: k, idxObj });
+              if (fb.found) {
+                found = fb.found;
+                matchKind = fb.matchKind;
+              }
+            }
+
+            if (!lookupStats.has(fieldName)) {
+              lookupStats.set(fieldName, {
+                totalRows: 0,
+                provided: 0,
+                matched: 0,
+                substringMatched: 0,
+                missing: 0,
+                blank: 0,
+                missingKeys: new Set(),
+              });
+            }
+            const s = lookupStats.get(fieldName);
+            s.totalRows++;
+
+            if (!k) {
+              s.blank++;
+              out[i] = lookupExportMode === "debugAppendPk" ? formatCellForDisplay(raw).trim() : "";
+              continue;
+            }
+            s.provided++;
+
+            if (found !== undefined && found !== null && String(found).trim() !== "") {
+              // Normal behavior: relationship field receives the PK
+              // Debug behavior: keep original identifier here and append PK in extra column(s)
+              out[i] = lookupExportMode === "debugAppendPk" ? formatCellForDisplay(raw).trim() : String(found);
+              s.matched++;
+              if (matchKind === "substring") s.substringMatched++;
+            } else {
+              out[i] = lookupExportMode === "debugAppendPk" ? formatCellForDisplay(raw).trim() : "";
+              s.missing++;
+              if (k) {
+                if (!missingLookups.has(fieldName)) missingLookups.set(fieldName, new Set());
+                missingLookups.get(fieldName).add(k);
+                s.missingKeys.add(k);
+              }
+            }
+
+            // If debug mode, append PK + status in extra columns
+            if (lookupExportMode === "debugAppendPk") {
+              const base = headers.length + (lookupTargetsInExport.indexOf(fieldName) * 2);
+              const pk = (found !== undefined && found !== null && String(found).trim() !== "") ? String(found) : "";
+              out[base] = pk;
+              out[base + 1] = pk ? (matchKind === "substring" ? "matched_substring" : "matched") : (k ? "missing" : "blank");
+            }
+            continue;
+          }
+
+          const colIdx = fieldToColIndex.get(fieldName);
+          const v = row[colIdx];
+          if (f && fieldGeneralType(f.FieldType) === "enum") {
+            if (!enumStats.has(fieldName)) {
+              enumStats.set(fieldName, {
+                provided: 0,
+                matched: 0,
+                converted: 0,
+                unmatched: 0,
+                blank: 0,
+                unmatchedValues: new Set(),
+                unmatchedCounts: new Map(),
+                overrides: 0,
+              });
+            }
+            const s = enumStats.get(fieldName);
+            const dropdownEntry = enumDropdownByFieldName.get(fieldName) || null;
+            const resolved = resolveEnumValueForField(fieldName, v, dropdownEntry);
+            if (resolved.status === "blank") {
+              s.blank++;
+            } else {
+              s.provided++;
+              if (resolved.status === "exact" || resolved.status === "normalized") s.matched++;
+              else if (resolved.status === "abbrev") s.converted++;
+              else if (resolved.status === "override") s.overrides++;
+              else if (resolved.status === "unmatched") {
+                s.unmatched++;
+                const rawVal = String(v ?? "").trim();
+                if (s.unmatchedValues.size < 250) s.unmatchedValues.add(rawVal);
+                if (s.unmatchedCounts.size < 500) s.unmatchedCounts.set(rawVal, (s.unmatchedCounts.get(rawVal) || 0) + 1);
+              }
+            }
+            out[i] = normalizeCellValue(resolved.value, f.FieldType);
+          } else {
+            out[i] = normalizeCellValue(v, f ? f.FieldType : "");
+          }
+        }
+
+        // Append enrichment columns at end (1-2 cols per rule)
+        if (enrichRules.length) {
+          let appendOffset = 0;
+          for (let j = 0; j < enrichRules.length; j++) {
+            const rule = enrichRules[j];
+            if (!enrichStats.has(rule.id)) enrichStats.set(rule.id, { total: 0, matched: 0, missing: 0, blank: 0 });
+            const s = enrichStats.get(rule.id);
+            s.total++;
+
+            const raw = row[rule.sourceColIndex];
+            const k = normalizeLookupKey(raw, rule.matchNormalizeMode);
+            const cache = enrichCaches.get(rule.reportId);
+            const idx = cache?.indexes?.get(rule.id);
+            const foundRow = k ? idx?.get(k) : null;
+
+            const base = headers.length + lookupDebugHeaders.length + appendOffset;
+            if (!k) {
+              s.blank++;
+              out[base] = "";
+              if (rule.returnColumnKey) out[base + 1] = "";
+            } else if (foundRow) {
+              const idVal = foundRow[rule.idColumnKey];
+              out[base] = (idVal === null || idVal === undefined) ? "" : String(idVal);
+              if (rule.returnColumnKey) {
+                const retVal = foundRow[rule.returnColumnKey];
+                out[base + 1] = (retVal === null || retVal === undefined) ? "" : String(retVal);
+              }
+              s.matched++;
+            } else {
+              s.missing++;
+              out[base] = "";
+              if (rule.returnColumnKey) out[base + 1] = "";
+            }
+
+            appendOffset += rule.returnColumnKey ? 2 : 1;
+          }
+        }
+        rows.push(out);
+      }
+
+      // Persist last computed validation stats so the UI summaries don’t disappear after
+      // subsequent UI updates (ex: user applies enum fixes).
+      lastValidationState = {
+        lookupStats,
+        enumStats,
+        enrichStats,
+        lookupExportMode,
+        at: Date.now(),
+      };
+
+      return {
+        headers: [...headers, ...lookupDebugHeaders, ...enrichAppendHeaders],
+        rows,
+        headerRowIndex: headerRow,
+        dataStartIndex: dataStart,
+        missingLookups,
+        lookupStats,
+        enumStats,
+        enrichStats,
+        lookupExportMode,
+      };
+    }
+
+    async function downloadCsv() {
+      const lookupExportMode = isDebugLookupAppendPkMode() ? "debugAppendPk" : "importReady";
+      const { headers, rows, missingLookups, lookupStats, enumStats, enrichStats } = await buildNormalizedRows({ lookupExportMode });
+      const csv = buildCsv([headers, ...rows], { strict: isStrictCsvMode(), delimiter: "," });
+      const validation = validateCsvColumnCounts(csv, { delimiter: "," });
+      if (!validation.ok) {
+        console.warn("CSV self-check failed (column count mismatch):", validation);
+        alert(`Export generated, but the CSV self-check detected ${validation.badLines.length} bad line(s). See console for details.`);
+      }
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `normalized_${selectedTable ? (selectedTable.Name || "table") : "export"}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      renderLookupValidationSummary(lookupStats);
+      renderEnumValidationSummary(enumStats);
+      renderEnrichValidationSummary(enrichStats);
+      if (missingLookups && missingLookups.size) {
+        console.warn("Missing lookup matches:", Object.fromEntries([...missingLookups.entries()].map(([k, set]) => [k, [...set].slice(0, 100)])));
+        alert("CSV downloaded, but some lookup values did not match (see console).");
+      }
+    }
+
+    function getLookupStatusColumnIndexes(headers) {
+      const idxs = [];
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || "");
+        if (h.endsWith("__lookup_status")) idxs.push(i);
+      }
+      return idxs;
+    }
+
+    function isRowAllLookupsMatched(row, statusIdxs) {
+      if (!statusIdxs.length) return true;
+      for (const i of statusIdxs) {
+        const v = String(row?.[i] ?? "").trim().toLowerCase();
+        if (v !== "matched") return false; // treat blank/missing as not matched
+      }
+      return true;
+    }
+
+    async function downloadDebugWorkbookXlsx() {
+      // Always use debugAppendPk so __lookup_status columns exist.
+      const { headers, rows, lookupStats, enumStats, enrichStats } = await buildNormalizedRows({ lookupExportMode: "debugAppendPk" });
+      if (!headers.length) return;
+
+      const statusIdxs = getLookupStatusColumnIndexes(headers);
+      if (!statusIdxs.length) {
+        alert("No lookup status columns found. Add at least one Lookup Rule and enable debug mode.");
+        return;
+      }
+
+      const matchedOnly = [];
+      const needsLookup = [];
+      for (const r of rows) {
+        if (isRowAllLookupsMatched(r, statusIdxs)) matchedOnly.push(r);
+        else needsLookup.push(r);
+      }
+
+      const wb = XLSX.utils.book_new();
+      const aoaAll = [headers, ...rows];
+      const aoaMatched = [headers, ...matchedOnly];
+      const aoaMissing = [headers, ...needsLookup];
+
+      const wsAll = XLSX.utils.aoa_to_sheet(aoaAll);
+      const wsMatched = XLSX.utils.aoa_to_sheet(aoaMatched);
+      const wsMissing = XLSX.utils.aoa_to_sheet(aoaMissing);
+
+      XLSX.utils.book_append_sheet(wb, wsAll, "All (debug)");
+      XLSX.utils.book_append_sheet(wb, wsMatched, "All lookups matched");
+      XLSX.utils.book_append_sheet(wb, wsMissing, "Needs lookup");
+
+      const name = selectedTable ? (selectedTable.Name || "export") : "export";
+      // Use Blob download (more reliable across browsers than XLSX.writeFile)
+      const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `normalized_debug_${name}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      alert(`Debug workbook downloaded.\n\nAll: ${rows.length}\nAll lookups matched: ${matchedOnly.length}\nNeeds lookup: ${needsLookup.length}\n\nOpen the .xlsx in Excel/Sheets to see the 3 tabs.`);
+
+      renderLookupValidationSummary(lookupStats);
+      renderEnumValidationSummary(enumStats);
+      renderEnrichValidationSummary(enrichStats);
+    }
+
+    async function previewCsv() {
+      const lookupExportMode = isDebugLookupAppendPkMode() ? "debugAppendPk" : "importReady";
+      const { headers, rows, missingLookups, lookupStats, enumStats, enrichStats } = await buildNormalizedRows({ lookupExportMode });
+      const csv = buildCsv([headers, ...rows], { strict: isStrictCsvMode(), delimiter: "," });
+      // Render a spreadsheet-like preview using SheetJS
+      const previewTableHtml = renderCsvPreviewTable(headers, rows, { maxRows: 25 });
+      $("#csvPreviewTable").html(previewTableHtml);
+
+      // Raw preview (optional)
+      const lines = csv.split(/\r?\n/).slice(0, 30).join("\n");
+      $("#csvPreviewRaw").text(lines);
+      $("#csvPreviewMeta").text(`Showing ${Math.min(25, rows.length)} row(s) · ${headers.length} column(s)`);
+      $("#csvPreviewWrap").removeClass("d-none");
+      renderLookupValidationSummary(lookupStats);
+      renderEnumValidationSummary(enumStats);
+      renderEnrichValidationSummary(enrichStats);
+      if (missingLookups && missingLookups.size) {
+        console.warn("Missing lookup matches:", Object.fromEntries([...missingLookups.entries()].map(([k, set]) => [k, [...set].slice(0, 100)])));
+      }
+    }
+
+    async function importViaPostdata() {
+      if (!selectedTable?.Key) return;
+      // Postdata import must be import-ready (relationship fields require PK values).
+      const { headers, rows, missingLookups, lookupStats, enumStats } = await buildNormalizedRows({ lookupExportMode: "importReady" });
+      if (!headers.length || !rows.length) return;
+
+      setProgress(true, "Creating records via postdata…", 0, rows.length);
+
+      let ok = 0;
+      let fail = 0;
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const fieldsList = [];
+        for (let c = 0; c < headers.length; c++) {
+          const fieldName = headers[c];
+          const value = row[c];
+          if (value === "" || value === null || value === undefined) continue;
+          fieldsList.push({ Name: fieldName, Value: value });
+        }
+
+        try {
+          await apiPost("/api/FormAction/postdata", {
+            ApplicationTableKey: selectedTable.Key,
+            FieldsList: fieldsList,
+          });
+          ok++;
+        } catch (e) {
+          fail++;
+          if ($("#technicalModeToggle").is(":checked")) {
+            console.warn("postdata failed for row", i + 1, e);
+          }
+        }
+        setProgress(true, "Creating records via postdata…", i + 1, rows.length);
+      }
+
+      setProgress(false);
+      const msg = `Done. Success: ${ok}. Failed: ${fail}.`;
+      alert(msg);
+
+      renderLookupValidationSummary(lookupStats);
+      renderEnumValidationSummary(enumStats);
+      if (missingLookups && missingLookups.size) {
+        console.warn("Missing lookup matches:", Object.fromEntries([...missingLookups.entries()].map(([k, set]) => [k, [...set].slice(0, 100)])));
+      }
+    }
+
+    // -----------------------------
+    // Enable/disable controls
+    // -----------------------------
+    function updateActionButtons() {
+      const hasFile = !!workbook && fileColumns.length > 0;
+      const hasTable = !!selectedTable?.Key;
+      const hasFields = tableFields.length > 0;
+      const diag = computeMappingDiagnostics();
+      hasDuplicateMappings = diag.hasDuplicateMappings;
+      const hasMapping = diag.mappedCount > 0;
+      const canMap = hasFile && hasFields;
+
+      $("#autoMapBtn").prop("disabled", !canMap);
+      $("#clearMappingBtn").prop("disabled", !canMap);
+      // Require mappings AND no duplicate target fields to avoid silent drops
+      const canExport = canMap && hasMapping && !hasDuplicateMappings;
+      $("#downloadCsvBtn").prop("disabled", !canExport);
+      $("#previewCsvBtn").prop("disabled", !canExport);
+      const canDebugWorkbook = canExport && isDebugLookupAppendPkMode() && lookupRules.size > 0;
+      $("#downloadDebugXlsxBtn").prop("disabled", !canDebugWorkbook);
+      $("#importPostdataBtn").prop("disabled", !(canExport && hasTable));
+      $("#autoDetectTableBtn").prop("disabled", !(hasFile && tables.length > 0));
+      $("#openLookupBtn").prop("disabled", !(hasFile && hasFields));
+      $("#validateLookupsBtn").prop("disabled", !(hasFile && hasFields && lookupRules.size > 0));
+
+      $("#openEnrichBtn").prop("disabled", !(hasFile && hasFields && tables.length > 0));
+      $("#validateEnrichBtn").prop("disabled", !(hasFile && hasFields && enrichRules.length > 0));
+
+      renderExportReadiness({
+        hasFile,
+        hasTable,
+        hasFields,
+        mappedCount: diag.mappedCount,
+        hasDuplicateMappings: diag.hasDuplicateMappings,
+        duplicateFields: diag.duplicateFields,
+      });
+
+      // Show enum validation hint as soon as enum fields are mapped (actual stats render after preview/download/import)
+      renderEnumValidationSummary(lastValidationState?.enumStats || null);
+    }
+
+    function resetFileState() {
+      workbook = null;
+      activeSheetName = null;
+      sheetRows = [];
+      fileColumns = [];
+      invalidateValidationState();
+      $("#fileInfo").addClass("d-none");
+      $("#sheetControls").addClass("d-none");
+      $("#filePreview").addClass("d-none");
+      $("#csvPreviewWrap").addClass("d-none");
+      $("#excelFile").val("");
+      $("#previewHead").empty();
+      $("#previewBody").empty();
+      $("#mappingTableBody").html(`<tr><td colspan="6" class="text-muted">Upload a file and load a table to generate mapping suggestions.</td></tr>`);
+      columnToField.clear();
+      ignoredColumnIndexes.clear();
+      lookupRules.clear();
+      lookupCaches.clear();
+      $("#lookupRulesBody").html(`<tr><td colspan="5" class="text-muted">Add a lookup to convert user-facing identifiers (e.g., Project Number) into relational record IDs.</td></tr>`);
+      $("#lookupValidationSummary").addClass("d-none").empty();
+      renderMappingSummary();
+      updateActionButtons();
+    }
+
+    // -----------------------------
+    // Events
+    // -----------------------------
+    $(document).ready(function() {
+      // Confirm modal wiring (single resolver at a time)
+      $("#appConfirmOkBtn").on("click", function() {
+        const resolve = appConfirmResolver;
+        appConfirmResolver = null;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("appConfirmModal")).hide();
+        if (resolve) resolve(true);
+      });
+      $("#appConfirmCancelBtn").on("click", function() {
+        const resolve = appConfirmResolver;
+        appConfirmResolver = null;
+        if (resolve) resolve(false);
+      });
+      $("#appConfirmModal").on("hidden.bs.modal", function() {
+        // Treat dismiss (X / backdrop) as cancel
+        const resolve = appConfirmResolver;
+        appConfirmResolver = null;
+        if (resolve) resolve(false);
+      });
+
+      setTechnicalMode(false);
+      $("#technicalModeToggle").on("change", function() {
+        setTechnicalMode($(this).is(":checked"));
+      });
+
+      $("#chooseFileBtn").on("click", (e) => {
+        // Prevent bubbling into #dropzone click handler (double file picker)
+        e.preventDefault();
+        e.stopPropagation();
+        // Clear value so selecting the same file triggers change event
+        const input = document.getElementById("excelFile");
+        if (input) input.value = "";
+        $("#excelFile").click();
+      });
+      $("#dropzone").on("click", (e) => {
+        // Clicking the button inside dropzone is handled separately
+        if ($(e.target).closest("#chooseFileBtn").length) return;
+        const input = document.getElementById("excelFile");
+        if (input) input.value = "";
+        $("#excelFile").click();
+      });
+      $("#excelFile").on("change", async function(e) {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        await handleIncomingFile(f);
+      });
+
+      $("#dropzone").on("dragover", function(e) {
+        e.preventDefault();
+        $(this).addClass("dragover");
+      });
+      $("#dropzone").on("dragleave", function(e) {
+        e.preventDefault();
+        $(this).removeClass("dragover");
+      });
+      $("#dropzone").on("drop", async function(e) {
+        e.preventDefault();
+        $(this).removeClass("dragover");
+        const f = e.originalEvent.dataTransfer.files?.[0];
+        if (!f) return;
+        await handleIncomingFile(f);
+      });
+
+      $("#resetFileBtn").on("click", resetFileState);
+      $("#sheetSelect").on("change", function() {
+        activeSheetName = $(this).val();
+        // Switching sheets should reset mapping + previews to avoid mixing schemas between tabs
+        columnToField.clear();
+        lookupRules.clear();
+        lookupCaches.clear();
+        renderLookupRulesTable();
+        $("#lookupValidationSummary").addClass("d-none").empty();
+        $("#csvPreviewWrap").addClass("d-none");
+        loadActiveSheet();
+        renderMappingTable();
+        updateActionButtons();
+      });
+      $("#headerRowInput, #dataStartRowInput").on("input change", function() {
+        computeColumns();
+        renderMappingTable();
+        updateActionButtons();
+      });
+
+      $("#showIgnoredColumnsToggle").on("change", function() {
+        renderMappingTable();
+      });
+
+      $("#strictCsvModeToggle, #debugLookupAppendPkToggle").on("change", function() {
+        updateActionButtons();
+      });
+
+      $("#csvPreviewShowRawToggle").on("change", function() {
+        const showRaw = $(this).is(":checked");
+        $("#csvPreviewRaw").toggleClass("d-none", !showRaw);
+      });
+
+      $("#enumValidationSummary").on("click", ".download-enum-unmatched-btn", function() {
+        const fieldName = String($(this).data("field-name") || "").trim();
+        if (!fieldName) return;
+        // Recompute stats from current sheet/mappings so it matches what you see
+        buildNormalizedRows({ lookupExportMode: isDebugLookupAppendPkMode() ? "debugAppendPk" : "importReady" })
+          .then(({ enumStats }) => {
+            const s = enumStats?.get(fieldName);
+            const values = s?.unmatchedValues ? [...s.unmatchedValues] : [];
+            if (!values.length) {
+              showAppMessage({ title: "Nothing to export", html: "No unmatched enum values to export for this field." });
+              return;
+            }
+            const rows = [["field", "unmatched_value"], ...values.map(v => [fieldName, v])];
+            const csv = buildCsv(rows, { strict: isStrictCsvMode(), delimiter: "," });
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `enum_unmatched_${fieldName}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          })
+          .catch((e) => {
+            console.error(e);
+            showAppMessage({
+              title: "Export failed",
+              html: `<div>Failed to export unmatched enum values.</div><div class="small text-muted mt-2">See console for details.</div>`,
+            });
+          });
+      });
+
+      async function openEnumFixModal(fieldName) {
+        const fName = String(fieldName || "").trim();
+        if (!fName) return;
+
+        // Ensure we have latest unmatched counts
+        const { enumStats } = await buildNormalizedRows({ lookupExportMode: isDebugLookupAppendPkMode() ? "debugAppendPk" : "importReady" });
+        const stats = enumStats?.get(fName);
+
+        const fieldByFieldName = new Map(tableFields.map(ff => [ff.FieldName, ff]));
+        const f = fieldByFieldName.get(fName);
+        const fieldKey = String(f?.Key || f?.FieldKey || "").trim();
+        const dropdownEntry = fieldKey ? await loadDropdownValuesForFieldKeyCached(fieldKey) : null;
+        const dropdownValues = dropdownEntry?.values || [];
+
+        $("#enumFixFieldName").text(fName);
+        const existingFixes = enumValueFixesByFieldName.get(fName) || new Map();
+        enumFixDraft = { fieldName: fName, map: new Map(existingFixes) };
+
+        const existingLower = new Set(dropdownValues.map(x => String(x || "").trim().toLowerCase()).filter(Boolean));
+
+        if (!stats || (!stats.unmatchedCounts?.size && !existingFixes.size)) {
+          $("#enumFixMeta").text("No unmatched values detected for this field.");
+          $("#enumFixBody").html(`<tr><td colspan="6" class="text-muted">No unmatched values.</td></tr>`);
+        } else {
+          const pairs = [];
+          // union of current unmatched + existing fixes so you can see/adjust fixes even if they no longer appear
+          const keys = new Set([
+            ...Array.from(stats.unmatchedCounts?.keys ? stats.unmatchedCounts.keys() : []),
+            ...Array.from(existingFixes.keys()),
+          ]);
+          for (const raw of keys) {
+            const count = stats.unmatchedCounts?.get(raw) || 0;
+            pairs.push({ raw, count });
+          }
+          pairs.sort((a, b) => (b.count - a.count) || String(a.raw).localeCompare(String(b.raw)));
+
+          $("#enumFixMeta").text(`Unmatched distinct value(s): ${pairs.length} · Dropdown options: ${dropdownValues.length}`);
+
+          const optionHtml = [`<option value="">— Choose replacement —</option>`]
+            .concat(dropdownValues.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`))
+            .join("");
+
+          const bodyRows = pairs.map(({ raw, count }) => {
+            const key = getEnumFixKey(raw);
+            const selected = enumFixDraft.map.get(key) || "";
+            const canAdd = raw && !existingLower.has(String(raw).trim().toLowerCase());
+            const defaultLabel = raw || "";
+            return `
+              <tr>
+                <td class="text-center">
+                  <input class="form-check-input enum-add-select" type="checkbox" data-raw="${escapeHtml(raw)}">
+                </td>
+                <td class="mono">${escapeHtml(raw)}</td>
+                <td class="text-end">${count}</td>
+                <td>
+                  <select class="form-select form-select-sm enum-fix-select" data-raw="${escapeHtml(raw)}">
+                    ${optionHtml.replace(
+                      new RegExp(`value="${escapeHtml(selected)}"`),
+                      `value="${escapeHtml(selected)}" selected`
+                    )}
+                  </select>
+                </td>
+                <td>
+                  <input class="form-control form-control-sm enum-add-label-input" data-raw="${escapeHtml(raw)}" value="${escapeHtml(defaultLabel)}" placeholder="New option label">
+                </td>
+                <td class="text-end">
+                  ${canAdd
+                    ? `<button class="btn btn-sm btn-outline-success add-enum-option-btn" data-field-name="${escapeHtml(fName)}" data-raw="${escapeHtml(raw)}" title="Add this value to the system dropdown">
+                         <i class="bi bi-plus-circle me-1"></i>Add
+                       </button>`
+                    : `<span class="text-muted">—</span>`}
+                </td>
+              </tr>
+            `;
+          });
+
+          $("#enumFixBody").html(bodyRows.join(""));
+        }
+
+        const modalEl = document.getElementById("enumFixModal");
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+      }
+
+      $("#enumValidationSummary").on("click", ".open-enum-fix-btn", function() {
+        const fieldName = String($(this).data("field-name") || "").trim();
+        openEnumFixModal(fieldName).catch((e) => {
+          console.error(e);
+          showAppMessage({
+            title: "Open failed",
+            html: `<div>Failed to open enum fixes.</div><div class="small text-muted mt-2">See console for details.</div>`,
+          });
+        });
+      });
+
+      $("#enumFixBody").on("change", ".enum-fix-select", function() {
+        if (!enumFixDraft) return;
+        const raw = String($(this).data("raw") || "");
+        const key = getEnumFixKey(raw);
+        const replacement = String($(this).val() || "");
+        if (!key) return;
+        if (!replacement) enumFixDraft.map.delete(key);
+        else enumFixDraft.map.set(key, replacement);
+      });
+
+      $("#enumFixBody").on("click", ".add-enum-option-btn", function() {
+        const fieldName = String($(this).data("field-name") || "").trim();
+        const raw = String($(this).data("raw") || "").trim();
+        if (!fieldName || !raw) return;
+        const desiredLabel = String($("#enumFixBody .enum-add-label-input").filter(function() {
+          return String($(this).data("raw") || "") === raw;
+        }).first().val() || "").trim();
+        const labelToAdd = desiredLabel || raw;
+        showAppConfirm({
+          title: "Add dropdown option?",
+          html: `<div class="mb-1">This will add a new option to the <strong>${escapeHtml(fieldName)}</strong> dropdown.</div>
+                 <div class="mono">${escapeHtml(labelToAdd)}</div>
+                 <div class="small text-muted mt-2">This updates the system field definition.</div>`,
+          confirmText: "Add option",
+          confirmClass: "btn-success",
+        }).then((ok) => {
+          if (!ok) return;
+
+          const $btn = $(this);
+          const prevHtml = $btn.html();
+          $btn.prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-1"></span>Adding...`);
+
+          addEnumOptionToField({ fieldName, newValue: labelToAdd })
+            .then(async (res) => {
+              if (res?.alreadyExists) {
+                showAppMessage({
+                  title: "Already exists",
+                  html: `<div class="mono">${escapeHtml(labelToAdd)}</div><div class="small text-muted mt-2">This option already exists for <strong>${escapeHtml(fieldName)}</strong>.</div>`,
+                });
+              } else {
+                // Immediately apply a replacement rule (so the “unmatched” state resolves cleanly)
+                const key = getEnumFixKey(raw);
+                if (key) {
+                  const existing = enumValueFixesByFieldName.get(fieldName) || new Map();
+                  existing.set(key, labelToAdd);
+                  enumValueFixesByFieldName.set(fieldName, existing);
+                }
+                // Keep draft in sync too
+                if (enumFixDraft?.fieldName === fieldName) {
+                  const k2 = getEnumFixKey(raw);
+                  if (k2) enumFixDraft.map.set(k2, labelToAdd);
+                }
+
+                // Refresh UI + modal with updated options/stats
+                updateActionButtons();
+                if (!$("#csvPreviewWrap").hasClass("d-none")) {
+                  previewCsv().catch((e) => console.error(e));
+                }
+                await openEnumFixModal(fieldName);
+                showAppMessage({
+                  title: "Dropdown updated",
+                  html: `<div>Added a new dropdown option for <strong>${escapeHtml(fieldName)}</strong>:</div><div class="mono mt-2">${escapeHtml(labelToAdd)}</div>`,
+                });
+              }
+            })
+            .catch((e) => {
+              console.error(e);
+              showAppMessage({
+                title: "Add failed",
+                html: `<div>Failed to add dropdown value.</div><div class="small text-muted mt-2">See console for details.</div>`,
+              });
+            })
+            .finally(() => {
+              $btn.prop("disabled", false).html(prevHtml);
+            });
+        });
+      });
+
+      $("#enumFixSelectAllToggle").on("change", function() {
+        const on = $(this).is(":checked");
+        $("#enumFixBody .enum-add-select").prop("checked", on);
+      });
+
+      $("#enumFixBulkAddBtn").on("click", function() {
+        const fieldName = String($("#enumFixFieldName").text() || "").trim();
+        if (!fieldName) return;
+
+        const selectedRaws = $("#enumFixBody .enum-add-select:checked").map(function() {
+          return String($(this).data("raw") || "").trim();
+        }).get().filter(Boolean);
+
+        if (!selectedRaws.length) {
+          showAppMessage({ title: "Nothing selected", html: "Select one or more unmatched values first." });
+          return;
+        }
+
+        const additions = selectedRaws.map(raw => {
+          const desiredLabel = String($("#enumFixBody .enum-add-label-input").filter(function() {
+            return String($(this).data("raw") || "") === raw;
+          }).first().val() || "").trim();
+          return { raw, label: desiredLabel || raw };
+        });
+
+        const labels = additions.map(a => a.label).filter(Boolean);
+        const previewList = additions.slice(0, 12).map(a => `- ${a.raw} → ${a.label}`).join("\n");
+        showAppConfirm({
+          title: "Add dropdown options?",
+          html: `<div class="mb-2">This will add <strong>${additions.length}</strong> option(s) to <strong>${escapeHtml(fieldName)}</strong> in one update.</div>
+                 <pre class="mb-0 small-code bg-dark text-light p-3 rounded" style="max-height: 220px; overflow:auto;">${escapeHtml(previewList)}${additions.length > 12 ? "\n- …" : ""}</pre>`,
+          confirmText: "Add selected options",
+          confirmClass: "btn-success",
+        }).then((ok) => {
+          if (!ok) return;
+
+          const $btn = $(this);
+          const prev = $btn.html();
+          $btn.prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-1"></span>Adding...`);
+
+          addEnumOptionsToFieldBulk({ fieldName, newValues: labels })
+            .then(async (res) => {
+              // Immediately apply replacements for raws we just added (raw -> chosen label)
+              const existing = enumValueFixesByFieldName.get(fieldName) || new Map();
+              for (const { raw, label } of additions) {
+                const k = getEnumFixKey(raw);
+                if (k) existing.set(k, label);
+                if (enumFixDraft?.fieldName === fieldName && k) enumFixDraft.map.set(k, label);
+              }
+              enumValueFixesByFieldName.set(fieldName, existing);
+
+              updateActionButtons();
+              if (!$("#csvPreviewWrap").hasClass("d-none")) {
+                await previewCsv();
+              }
+              await openEnumFixModal(fieldName);
+
+              const added = res?.added?.length || 0;
+              const already = res?.alreadyPresent?.length || 0;
+              showAppMessage({
+                title: "Dropdown updated",
+                html: `<div><strong>${escapeHtml(fieldName)}</strong> updated.</div>
+                       <div class="small text-muted mt-2">Added: <strong>${added}</strong> · Already existed: <strong>${already}</strong></div>`,
+              });
+            })
+            .catch((e) => {
+              console.error(e);
+              showAppMessage({
+                title: "Bulk add failed",
+                html: `<div>Failed to add dropdown options.</div><div class="small text-muted mt-2">See console for details.</div>`,
+              });
+            })
+            .finally(() => {
+              $btn.prop("disabled", false).html(prev);
+            });
+        });
+      });
+
+      $("#enumFixClearBtn").on("click", function() {
+        const fieldName = String($("#enumFixFieldName").text() || "").trim();
+        if (!fieldName) return;
+        showAppConfirm({
+          title: "Clear fixes?",
+          html: `<div>Clear all enum fixes for <strong>${escapeHtml(fieldName)}</strong>?</div>`,
+          confirmText: "Clear fixes",
+          confirmClass: "btn-danger",
+        }).then((ok) => {
+          if (!ok) return;
+          enumValueFixesByFieldName.delete(fieldName);
+          enumFixDraft = { fieldName, map: new Map() };
+          $("#enumFixBody").html(`<tr><td colspan="6" class="text-muted">No unmatched values.</td></tr>`);
+          updateActionButtons();
+          showAppMessage({ title: "Cleared", html: `Enum fixes cleared for <strong>${escapeHtml(fieldName)}</strong>.` });
+        });
+      });
+
+      $("#enumFixApplyBtn").on("click", function() {
+        if (!enumFixDraft?.fieldName) return;
+        const fieldName = enumFixDraft.fieldName;
+        const map = enumFixDraft.map || new Map();
+        if (map.size) enumValueFixesByFieldName.set(fieldName, new Map(map));
+        else enumValueFixesByFieldName.delete(fieldName);
+
+        updateActionButtons();
+        // If preview is open, refresh it so the user sees updated conversions/remaining unmatched
+        if (!$("#csvPreviewWrap").hasClass("d-none")) {
+          previewCsv().catch((e) => console.error(e));
+        }
+        const modalEl = document.getElementById("enumFixModal");
+        bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+      });
+
+      $("#loadTablesBtn").on("click", async function() {
+        const appKey = $("#appKeyInput").val().trim();
+        if (!appKey) return alert("Enter an Application Key.");
+        $(this).prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-2"></span>Loading...`);
+        try {
+          await loadTablesForAppKey(appKey);
+        } catch (e) {
+          console.error(e);
+          alert("Failed to load tables. Check token/auth and try again.");
+        } finally {
+          $(this).prop("disabled", false).html(`<i class="bi bi-search me-1"></i>Load Tables`);
+        }
+      });
+
+      $("#tableSelect").on("change", async function() {
+        const key = $(this).val();
+        selectedTable = tables.find(t => t.Key === key) || null;
+        $("#selectedTableName").text(selectedTable?.Name || "-");
+        $("#selectedTableKey").text(selectedTable?.Key || "-");
+        $("#selectedFieldsCount").text("0");
+        $("#csvPreviewWrap").addClass("d-none");
+
+        columnToField.clear();
+        lookupRules.clear();
+        lookupCaches.clear();
+        renderLookupRulesTable();
+        $("#lookupValidationSummary").addClass("d-none").empty();
+        tableFields = [];
+        renderMappingTable();
+        updateActionButtons();
+
+        if (!selectedTable?.Key) return;
+        try {
+          await loadFieldsForTableKey(selectedTable.Key);
+        } catch (e) {
+          console.error(e);
+          alert("Failed to load fields for selected table.");
+        }
+      });
+
+      $("#autoDetectTableBtn").on("click", suggestTableFromFileHeaders);
+      $("#autoMapBtn").on("click", autoMap);
+      $("#clearMappingBtn").on("click", clearMapping);
+      $("#downloadCsvBtn").on("click", downloadCsv);
+      $("#downloadDebugXlsxBtn").on("click", function() {
+        downloadDebugWorkbookXlsx().catch((e) => {
+          console.error(e);
+          alert("Failed to download debug workbook. See console for details.");
+        });
+      });
+      $("#previewCsvBtn").on("click", previewCsv);
+      $("#importPostdataBtn").on("click", importViaPostdata);
+
+      // Lookup rules
+      $("#openLookupBtn").on("click", openLookupModal);
+      $("#openEnrichBtn").on("click", function() {
+        openEnrichModal().catch((e) => {
+          console.error(e);
+          alert("Failed to open enrichment modal. See console for details.");
+        });
+      });
+
+      $("#enrichParentTableSelect").on("change", async function() {
+        const parentKey = String($(this).val() || "").trim();
+        $("#enrichReportSelect").empty().append(`<option value="">— Select report —</option>`);
+        $("#enrichMatchColumn").empty().append(`<option value="">Load report sample…</option>`);
+        $("#enrichIdColumn").empty().append(`<option value="">Load report sample…</option>`);
+        $("#enrichReturnColumn").empty().append(`<option value="">Load report sample…</option>`);
+        if (!parentKey) return;
+        try {
+          await loadReportsForTableKeyCached(parentKey);
+          for (const r of (tableReports || [])) {
+            const id = String(r?.Key || r?.Id || r?.ReportKey || r?.reportId || "").trim();
+            const name = String(r?.Name || r?.ReportName || r?.Title || id).trim();
+            if (!id) continue;
+            $("#enrichReportSelect").append(`<option value="${escapeHtml(id)}">${escapeHtml(name)} (${escapeHtml(id)})</option>`);
+          }
+        } catch (e) {
+          console.error(e);
+          alert("Failed to load reports for parent table. See console for details.");
+        }
+      });
+
+      function updateEnrichOutputsPreview() {
+        const prefixRaw = String($("#enrichOutputPrefix").val() || "").trim() || "enrich";
+        const safePrefix = prefixRaw.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "_");
+        const targetField = String($("#enrichTargetFieldSelect").val() || "").trim();
+        const override = String($("#enrichIdOutputHeader").val() || "").trim();
+        const idHeader = override || targetField || `${safePrefix}__db_id`;
+        const extra = String($("#enrichReturnColumn").val() || "").trim();
+        const outputs = [idHeader, extra ? `${safePrefix}__db_${extra}` : null].filter(Boolean);
+        $("#enrichOutputsPreview").text(outputs.join(" · ") || "—");
+      }
+
+      $("#enrichTargetFieldSelect").on("change", function() {
+        const v = String($(this).val() || "").trim();
+        if (v) $("#enrichIdOutputHeader").val(""); // prefer target field unless user overrides
+        updateEnrichOutputsPreview();
+      });
+      $("#enrichOutputPrefix").on("input", updateEnrichOutputsPreview);
+      $("#enrichIdOutputHeader").on("input", updateEnrichOutputsPreview);
+
+      $("#enrichReportSelect").on("change", function() {
+        const rid = String($(this).val() || "").trim();
+        $("#enrichMatchColumn").empty().append(`<option value="">Load report sample…</option>`);
+        $("#enrichIdColumn").empty().append(`<option value="">Load report sample…</option>`);
+        $("#enrichReturnColumn").empty().append(`<option value="">Load report sample…</option>`);
+        if (rid) loadEnrichReportSampleKeys(rid);
+      });
+
+      $("#enrichReturnColumn").on("change", updateEnrichOutputsPreview);
+
+      $("#enrichSourceColumn").on("change", function() {
+        const idx = Number($(this).val());
+        const hdr = String(fileColumns.find(c => c.index === idx)?.header || "enrich");
+        const prefix = normalizeName(hdr).replace(/\s+/g, "_") || "enrich";
+        if (!String($("#enrichOutputPrefix").val() || "").trim()) {
+          $("#enrichOutputPrefix").val(prefix);
+        }
+        updateEnrichOutputsPreview();
+      });
+
+      $("#saveEnrichRuleBtn").on("click", saveEnrichRule);
+
+      $("#enrichClearAllBtn").on("click", function() {
+        if (!enrichRules.length) return;
+        if (!confirm("Clear all enrichment rules?")) return;
+        enrichRules = [];
+        enrichCaches.clear();
+        $("#enrichValidationSummary").addClass("d-none").empty();
+        renderEnrichRulesTable();
+        updateActionButtons();
+      });
+
+      $("#validateEnrichBtn").on("click", async function() {
+        const $btn = $(this);
+        try {
+          $btn.prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-2"></span>Validating...`);
+          const lookupExportMode = isDebugLookupAppendPkMode() ? "debugAppendPk" : "importReady";
+          const { enrichStats, enumStats, lookupStats } = await buildNormalizedRows({ lookupExportMode });
+          renderEnrichValidationSummary(enrichStats);
+          renderEnumValidationSummary(enumStats);
+          // (Optional) also refresh lookup coverage if lookups exist, since buildNormalizedRows already computed it.
+          if (lookupRules.size) renderLookupValidationSummary(lookupStats);
+        } catch (e) {
+          console.error(e);
+          showAppMessage({
+            title: "Enrichment validation failed",
+            html: `<div class="small text-muted">See console for details.</div>`,
+          });
+        } finally {
+          $btn.prop("disabled", false).html(`<i class="bi bi-check2-circle me-1"></i>Validate Enrichment`);
+        }
+      });
+      $("#lookupLoadReportSampleBtn").on("click", loadReportSampleIntoModal);
+      $("#lookupSaveBtn").on("click", saveLookupRuleFromModal);
+      $("#lookupClearAllBtn").on("click", function() {
+        lookupRules.clear();
+        lookupCaches.clear();
+        renderLookupRulesTable();
+      });
+      $("#validateLookupsBtn").on("click", async function() {
+        try {
+          $(this).prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-2"></span>Validating...`);
+          const { lookupStats, enumStats, enrichStats } = await buildNormalizedRows();
+          renderLookupValidationSummary(lookupStats);
+          renderEnumValidationSummary(enumStats);
+          renderEnrichValidationSummary(enrichStats);
+        } catch (e) {
+          console.error(e);
+          showAppMessage({
+            title: "Lookup validation failed",
+            html: `<div class="small text-muted">Check console for details.</div>`,
+          });
+        } finally {
+          $(this).prop("disabled", false).html(`<i class="bi bi-check2-circle me-1"></i>Validate Lookups`);
+        }
+      });
+    });
+
+    function renderLookupRulesTable() {
+      if (!lookupRules.size) {
+        $("#lookupRulesBody").html(`<tr><td colspan="5" class="text-muted">Add a lookup to convert user-facing identifiers (e.g., Project Number) into relational record IDs.</td></tr>`);
+        $("#lookupValidationSummary").addClass("d-none").empty();
+        return;
+      }
+
+      const fieldByFieldName = new Map(tableFields.map(f => [f.FieldName, f]));
+      const rows = [];
+      for (const [targetFieldName, rule] of lookupRules.entries()) {
+        const f = fieldByFieldName.get(targetFieldName);
+        const col = fileColumns.find(c => c.index === rule.sourceColIndex);
+        rows.push(`
+          <tr>
+            <td><strong>${escapeHtml(f?.Name || targetFieldName)}</strong><div class="small text-muted mono">${escapeHtml(targetFieldName)}</div></td>
+            <td>${escapeHtml(col?.header || `Column ${rule.sourceColIndex + 1}`)}</td>
+            <td class="mono">${escapeHtml(rule.reportId)}</td>
+            <td class="small">
+              match: <span class="mono">${escapeHtml(rule.matchColumnKey)}</span><br>
+              return: <span class="mono">${escapeHtml(rule.returnColumnKey)}</span><br>
+              normalize: <span class="mono">${escapeHtml(rule.matchNormalizeMode)}</span>
+            </td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-outline-danger" data-remove-lookup="${escapeHtml(targetFieldName)}">
+                <i class="bi bi-trash me-1"></i>Remove
+              </button>
+            </td>
+          </tr>
+        `);
+      }
+
+      $("#lookupRulesBody").html(rows.join(""));
+      $("[data-remove-lookup]").off("click").on("click", function() {
+        const key = String($(this).data("remove-lookup"));
+        lookupRules.delete(key);
+        lookupCaches.clear();
+        renderLookupRulesTable();
+      });
+    }
+
+    function renderEnrichRulesTable() {
+      if (!enrichRules.length) {
+        $("#enrichRulesBody").html(`<tr><td colspan="5" class="text-muted">Add an enrichment rule to append existing db values into your export.</td></tr>`);
+        return;
+      }
+
+      const colName = (idx) => fileColumns.find(c => c.index === idx)?.header || `Column #${idx + 1}`;
+      const rows = enrichRules.map(r => {
+        const outputs = [
+          String(r.idOutputHeader || "").trim() || `${escapeHtml(r.outputPrefix)}__db_id`,
+          r.returnColumnKey ? `${escapeHtml(r.outputPrefix)}__db_${escapeHtml(r.returnColumnKey)}` : null
+        ].filter(Boolean);
+        return `
+          <tr>
+            <td>
+              <div class="fw-semibold">${escapeHtml(r.name || r.outputPrefix || "Enrichment")}</div>
+              <div class="small text-muted mono">${outputs.map(escapeHtml).join(" · ")}</div>
+            </td>
+            <td>${escapeHtml(colName(r.sourceColIndex))}</td>
+            <td class="mono">${escapeHtml(r.reportId)}</td>
+            <td class="mono">${escapeHtml(r.matchColumnKey)} → id:${escapeHtml(r.idColumnKey)}${r.returnColumnKey ? ` · ${escapeHtml(r.returnColumnKey)}` : ``}</td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-outline-danger remove-enrich-btn" data-rule-id="${escapeHtml(r.id)}">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+      $("#enrichRulesBody").html(rows.join(""));
+
+      $(".remove-enrich-btn").off("click").on("click", function() {
+        const id = String($(this).data("rule-id") || "");
+        enrichRules = enrichRules.filter(r => r.id !== id);
+        $("#enrichValidationSummary").addClass("d-none").empty();
+        renderEnrichRulesTable();
+        updateActionButtons();
+      });
+    }
+
+    function renderEnrichValidationSummary(enrichStats) {
+      if (!enrichStats || !(enrichStats instanceof Map) || enrichStats.size === 0) {
+        $("#enrichValidationSummary").addClass("d-none").empty();
+        return;
+      }
+      const rows = [];
+      for (const [ruleId, s] of enrichStats.entries()) {
+        const r = enrichRules.find(x => x.id === ruleId);
+        const label = r ? (r.name || r.outputPrefix || ruleId) : ruleId;
+        rows.push(`
+          <tr>
+            <td>${escapeHtml(label)}</td>
+            <td class="text-end">${s.total}</td>
+            <td class="text-end"><span class="badge bg-success pill">${s.matched}</span></td>
+            <td class="text-end"><span class="badge bg-danger pill">${s.missing}</span></td>
+            <td class="text-end">${s.blank}</td>
+          </tr>
+        `);
+      }
+      $("#enrichValidationSummary")
+        .removeClass("d-none")
+        .html(`
+          <div class="alert alert-light border mb-0">
+            <div class="fw-semibold mb-2"><i class="bi bi-check2-circle me-2"></i>Enrichment coverage</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Rule</th>
+                    <th class="text-end">Rows</th>
+                    <th class="text-end">Matched</th>
+                    <th class="text-end">Missing</th>
+                    <th class="text-end">Blank</th>
+                  </tr>
+                </thead>
+                <tbody>${rows.join("")}</tbody>
+              </table>
+            </div>
+          </div>
+        `);
+    }
+
+    function renderLookupValidationSummary(lookupStats) {
+      if (!lookupStats || !(lookupStats instanceof Map) || lookupStats.size === 0) {
+        $("#lookupValidationSummary").addClass("d-none").empty();
+        return;
+      }
+
+      // Overall orphan count: rows where a lookup key was provided but no match was found.
+      let overallMissing = 0;
+      let overallProvided = 0;
+      let overallSubstring = 0;
+      for (const [, s] of lookupStats.entries()) {
+        overallMissing += Number(s.missing || 0);
+        overallProvided += Number(s.provided || 0);
+        overallSubstring += Number(s.substringMatched || 0);
+      }
+
+      const overallBadge =
+        overallMissing === 0
+          ? `<span class="badge bg-success pill">0 orphaned</span>`
+          : `<span class="badge bg-danger pill">${overallMissing} orphaned</span>`;
+
+      const rows = [];
+      for (const [targetFieldName, s] of lookupStats.entries()) {
+        const miss = Number(s.missing || 0);
+        const matched = Number(s.matched || 0);
+        const substr = Number(s.substringMatched || 0);
+        const provided = Number(s.provided || 0);
+        const blank = Number(s.blank || 0);
+        const missBadge = miss === 0 ? "bg-success" : "bg-danger";
+        const exampleKeys = [...(s.missingKeys || [])].slice(0, 6).join(", ");
+        const matchedHtml =
+          substr > 0
+            ? `<span class="badge bg-success pill">${matched} matched</span> <span class="badge bg-info pill">${substr} substring</span>`
+            : `<span class="badge bg-success pill">${matched} matched</span>`;
+
+        rows.push(`
+          <tr>
+            <td class="mono">${escapeHtml(targetFieldName)}</td>
+            <td><span class="badge ${missBadge} pill">${miss} missing</span></td>
+            <td>${matchedHtml}</td>
+            <td><span class="badge bg-secondary pill">${blank} blank</span></td>
+            <td class="small text-muted">${exampleKeys ? escapeHtml(exampleKeys) : "—"}</td>
+          </tr>
+        `);
+      }
+
+      $("#lookupValidationSummary")
+        .removeClass("d-none")
+        .html(`
+          <div class="alert ${overallMissing === 0 ? "alert-success" : "alert-warning"} border mb-0">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div class="fw-semibold">
+                Lookup coverage check: ${overallBadge}
+                <span class="small text-muted ms-2">(provided: ${overallProvided})</span>
+                ${overallSubstring > 0 ? `<span class="badge bg-info pill ms-2">${overallSubstring} substring matches</span>` : ``}
+              </div>
+              <div class="small text-muted">
+                Orphaned = identifier provided, but no match found in the lookup report
+              </div>
+            </div>
+            <div class="table-responsive mt-3">
+              <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 28%;">Target Field</th>
+                    <th style="width: 12%;">Missing</th>
+                    <th style="width: 12%;">Matched</th>
+                    <th style="width: 12%;">Blank</th>
+                    <th>Example missing keys</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `);
+    }
+
+    function openLookupModal() {
+      if (!fileColumns.length || !tableFields.length) {
+        alert("Upload a file and load a table first.");
+        return;
+      }
+
+      const fieldByFieldName = new Map((tableFields || []).map(f => [String(f.FieldName || "").trim(), f]));
+
+      const rel = tableFields.filter(isRelationshipField);
+      const other = tableFields.filter(f => !isRelationshipField(f));
+      const ordered = [...rel, ...other];
+
+      const $target = $("#lookupTargetField");
+      $target.empty();
+      ordered.forEach(f => {
+        const badge = isRelationshipField(f) ? " (relationship)" : "";
+        $target.append(`<option value="${escapeHtml(f.FieldName)}">${escapeHtml(f.Name || f.FieldName)}${escapeHtml(badge)} — ${escapeHtml(f.FieldName)}</option>`);
+      });
+
+      const $src = $("#lookupSourceColumn");
+      $src.empty();
+      fileColumns.forEach(c => {
+        $src.append(`<option value="${c.index}">${escapeHtml(c.header)}</option>`);
+      });
+
+      const $parent = $("#lookupParentTableSelect");
+      const $reportSelect = $("#lookupReportSelect");
+      const $customWrap = $("#lookupReportCustomWrap");
+      const $customInput = $("#lookupReportIdCustom");
+      const $parentHint = $("#lookupParentAutoHint");
+      $parentHint.text("");
+
+      // Populate parent table dropdown from loaded tables (Step 2)
+      $parent.empty();
+      const loadedTables = Array.isArray(tables) ? tables : [];
+      if (!loadedTables.length) {
+        $parent.append(`<option value="">Load tables first (Step 2)…</option>`);
+      } else {
+        loadedTables.forEach(t => {
+          $parent.append(`<option value="${escapeHtml(t.Key)}">${escapeHtml(t.Name)} — ${escapeHtml(t.Key)}</option>`);
+        });
+      }
+
+      // Default parent table: current selected table (if available)
+      if (selectedTable?.Key) $parent.val(selectedTable.Key);
+
+      function suggestParentTableKeyFromTargetField(targetFieldName) {
+        const tf = String(targetFieldName || "").trim();
+        if (!tf) return null;
+        if (!Array.isArray(loadedTables) || !loadedTables.length) return null;
+
+        const field = fieldByFieldName.get(tf) || null;
+        const isRel = isRelationshipField(field);
+        if (!isRel) return null;
+
+        // Prefer field token convention: related_{tableIdentifier}
+        const candidates = [];
+        if (tf.toLowerCase().startsWith("related_")) {
+          const base = tf.slice("related_".length);
+          if (base) {
+            candidates.push(base);
+            if (base.endsWith("s")) candidates.push(base.slice(0, -1));
+            else candidates.push(base + "s");
+          }
+        }
+
+        // Also use display label: "Related Projects" -> "Projects"
+        const display = String(field?.Name || "").trim();
+        if (display) {
+          const stripped = display.replace(/^related\s+/i, "").trim();
+          if (stripped) candidates.push(stripped);
+        }
+
+        // Normalize and score against table names
+        let best = { key: null, score: 0 };
+        for (const t of loadedTables) {
+          const tName = String(t?.Name || "").trim();
+          const tKey = String(t?.Key || "").trim();
+          if (!tName || !tKey) continue;
+          for (const cand of candidates) {
+            const score = stringSimilarity(cand, tName);
+            if (score > best.score) best = { key: tKey, score };
+          }
+        }
+        // Only auto-suggest if we’re fairly confident
+        if (best.key && best.score >= 0.72) return best.key;
+        return null;
+      }
+
+      let parentManuallySet = false;
+      let isApplyingAutoParent = false;
+
+      async function applyOrSuggestParentFromTargetField() {
+        $parentHint.text("");
+        const targetFieldName = String($target.val() || "").trim();
+        const suggestedParentKey = suggestParentTableKeyFromTargetField(targetFieldName);
+        if (!suggestedParentKey) return;
+
+        const suggestedTable = loadedTables.find(t => String(t?.Key || "") === suggestedParentKey) || null;
+        const suggestedLabel = suggestedTable ? String(suggestedTable.Name || "").trim() : "";
+
+        // If user has manually changed the parent, don’t override—just show a suggestion.
+        if (parentManuallySet && String($parent.val() || "").trim()) {
+          $parentHint.html(`Suggested parent table: <strong>${escapeHtml(suggestedLabel || suggestedParentKey)}</strong>.`);
+          return;
+        }
+
+        if (String($parent.val() || "").trim() === suggestedParentKey) {
+          $parentHint.html(`Auto-selected parent table: <strong>${escapeHtml(suggestedLabel || suggestedParentKey)}</strong>.`);
+          return;
+        }
+
+        isApplyingAutoParent = true;
+        $parent.val(suggestedParentKey);
+        $parentHint.html(`Auto-selected parent table: <strong>${escapeHtml(suggestedLabel || suggestedParentKey)}</strong>.`);
+        try {
+          // Changing parent table invalidates the current report columns until reloaded
+          $("#lookupMatchColumn").empty().append(`<option value="">Load report sample…</option>`);
+          $("#lookupReturnColumn").empty().append(`<option value="">Load report sample…</option>`);
+          $("#lookupSamplePreview").text("");
+          await refreshReportsForParentTable();
+        } finally {
+          isApplyingAutoParent = false;
+        }
+      }
+
+      async function refreshReportsForParentTable() {
+        const parentKey = String($parent.val() || "").trim();
+        $reportSelect.empty();
+        $customWrap.addClass("d-none");
+
+        if (!parentKey) {
+          $reportSelect.append(`<option value="__custom__">Custom report id…</option>`);
+          $customWrap.removeClass("d-none");
+          return;
+        }
+
+        try {
+          await loadReportsForTableKeyCached(parentKey);
+        } catch (e) {
+          console.warn("Failed to load reports for parent table:", e);
+          tableReports = [];
+        }
+
+        const reports = Array.isArray(tableReports) ? tableReports : [];
+        for (const r of reports) {
+          const value = String(r?.Key || r?.Id || r?.ReportId || "").trim();
+          if (!value) continue;
+          const label = String(r?.Name || r?.ReportName || r?.Title || value).trim();
+          $reportSelect.append(`<option value="${escapeHtml(value)}">${escapeHtml(label)} — ${escapeHtml(value)}</option>`);
+        }
+        $reportSelect.append(`<option value="__custom__">Custom report id…</option>`);
+
+        // Default selection: if projects report is present choose it, else first report, else custom.
+        const defaultProjectsReport = "hoqjjhtq4";
+        const hasProjects = $reportSelect.find(`option[value="${defaultProjectsReport}"]`).length > 0;
+        if (hasProjects) {
+          $reportSelect.val(defaultProjectsReport);
+        } else if (reports.length > 0) {
+          $reportSelect.prop("selectedIndex", 0);
+        } else {
+          $reportSelect.val("__custom__");
+          $customWrap.removeClass("d-none");
+        }
+      }
+
+      // Always keep a default custom report id handy (cross-table lookups)
+      if (!$customInput.val()) $customInput.val("hoqjjhtq4");
+
+      $reportSelect.off("change").on("change", function() {
+        const isCustom = $(this).val() === "__custom__";
+        $customWrap.toggleClass("d-none", !isCustom);
+      });
+      $parent.off("change").on("change", async function() {
+        if (!isApplyingAutoParent) parentManuallySet = true;
+        // Changing parent table invalidates the current report columns until reloaded
+        $parentHint.text("");
+        $("#lookupMatchColumn").empty().append(`<option value="">Load report sample…</option>`);
+        $("#lookupReturnColumn").empty().append(`<option value="">Load report sample…</option>`);
+        $("#lookupSamplePreview").text("");
+        await refreshReportsForParentTable();
+      });
+      $target.off("change").on("change", async function() {
+        await applyOrSuggestParentFromTargetField();
+      });
+
+      // Initial load
+      refreshReportsForParentTable();
+      // Also attempt to auto-select parent table based on the selected relationship field
+      applyOrSuggestParentFromTargetField();
+
+      $("#lookupMatchColumn").empty().append(`<option value="">Load report sample…</option>`);
+      $("#lookupReturnColumn").empty().append(`<option value="">Load report sample…</option>`);
+      $("#lookupSamplePreview").text("");
+
+      const modal = new bootstrap.Modal(document.getElementById("lookupModal"));
+      modal.show();
+    }
+
+    async function openEnrichModal() {
+      if (!fileColumns.length) return;
+      if (!tables.length) {
+        alert("Load tables first (Step 2), then add enrichment.");
+        return;
+      }
+
+      // Populate source columns
+      const $src = $("#enrichSourceColumn").empty();
+      for (const c of fileColumns) {
+        $src.append(`<option value="${c.index}">${escapeHtml(c.header || `Column ${c.index + 1}`)}</option>`);
+      }
+
+      // Parent table selector (where to lookup)
+      const $parent = $("#enrichParentTableSelect").empty();
+      $parent.append(`<option value="">— Select parent table —</option>`);
+      for (const t of tables) {
+        $parent.append(`<option value="${escapeHtml(t.Key)}">${escapeHtml(t.Name)} (${escapeHtml(t.Key)})</option>`);
+      }
+      const defaultParentKey = String(selectedTable?.Key || tables[0]?.Key || "").trim();
+      if (defaultParentKey) $parent.val(defaultParentKey);
+
+      // Target field selector (field in the table you're importing into)
+      const $target = $("#enrichTargetFieldSelect").empty();
+      $target.append(`<option value="">— Select target field (recommended) —</option>`);
+      const rel = [];
+      const nonRel = [];
+      for (const f of (tableFields || [])) {
+        const label = `${String(f.Name || f.FieldName)}  [${String(f.FieldName)}] · ${String(f.FieldType || "")}`;
+        if (isRelationshipField(f)) rel.push({ v: f.FieldName, label });
+        else nonRel.push({ v: f.FieldName, label });
+      }
+      if (rel.length) {
+        $target.append(`<option value="" disabled>— Relationship fields —</option>`);
+        for (const o of rel) $target.append(`<option value="${escapeHtml(o.v)}">${escapeHtml(o.label)}</option>`);
+      }
+      if (nonRel.length) {
+        $target.append(`<option value="" disabled>— Other fields —</option>`);
+        for (const o of nonRel) $target.append(`<option value="${escapeHtml(o.v)}">${escapeHtml(o.label)}</option>`);
+      }
+
+      // Load reports for selected parent table
+      const parentKey = String($parent.val() || "").trim();
+      if (parentKey) await loadReportsForTableKeyCached(parentKey);
+      const $rep = $("#enrichReportSelect").empty();
+      $rep.append(`<option value="">— Select report —</option>`);
+      for (const r of (tableReports || [])) {
+        const id = String(r?.Key || r?.Id || r?.ReportKey || r?.reportId || "").trim();
+        const name = String(r?.Name || r?.ReportName || r?.Title || id).trim();
+        if (!id) continue;
+        $rep.append(`<option value="${escapeHtml(id)}">${escapeHtml(name)} (${escapeHtml(id)})</option>`);
+      }
+
+      $("#enrichMatchColumn").empty().append(`<option value="">Load report sample…</option>`);
+      $("#enrichIdColumn").empty().append(`<option value="">Load report sample…</option>`);
+      $("#enrichReturnColumn").empty().append(`<option value="">Load report sample…</option>`);
+
+      // Sensible defaults
+      const defaultCol = fileColumns[0];
+      $("#enrichSourceColumn").val(String(defaultCol?.index ?? 0));
+      const hdr = String(defaultCol?.header || "enrich");
+      const prefix = normalizeName(hdr).replace(/\s+/g, "_") || "enrich";
+      $("#enrichRuleName").val("");
+      $("#enrichOutputPrefix").val(prefix);
+      $("#enrichIdOutputHeader").val(`${prefix}__db_id`);
+      $("#enrichOutputsPreview").text(`${prefix}__db_id`);
+
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("enrichModal")).show();
+    }
+
+    async function loadEnrichReportSampleKeys(reportId) {
+      const rid = String(reportId || "").trim();
+      if (!rid) return;
+      try {
+        const rows = await queryReport(rid);
+        const first = Array.isArray(rows) && rows.length ? rows[0] : null;
+        const keys = first ? Object.keys(first) : [];
+        const $match = $("#enrichMatchColumn").empty().append(`<option value="">— Select —</option>`);
+        const $id = $("#enrichIdColumn").empty().append(`<option value="">— Select —</option>`);
+        const $ret = $("#enrichReturnColumn").empty().append(`<option value="">— Select —</option>`);
+        for (const k of keys) {
+          $match.append(`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`);
+          $id.append(`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`);
+          $ret.append(`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`);
+        }
+        if (keys.includes("id")) $("#enrichIdColumn").val("id");
+      } catch (e) {
+        console.error(e);
+        alert("Failed to load report sample for enrichment. See console for details.");
+      }
+    }
+
+    function saveEnrichRule() {
+      const sourceColIndex = Number($("#enrichSourceColumn").val());
+      const parentTableKey = String($("#enrichParentTableSelect").val() || "").trim();
+      const reportId = String($("#enrichReportSelect").val() || "").trim();
+      const matchColumnKey = String($("#enrichMatchColumn").val() || "").trim();
+      const idColumnKey = String($("#enrichIdColumn").val() || "").trim();
+      const returnColumnKey = String($("#enrichReturnColumn").val() || "").trim();
+      const matchNormalizeMode = String($("#enrichNormalizeMode").val() || "trimLower");
+      const name = String($("#enrichRuleName").val() || "").trim();
+      const outputPrefixRaw = String($("#enrichOutputPrefix").val() || "").trim();
+      const outputPrefix = outputPrefixRaw || (normalizeName(fileColumns.find(c => c.index === sourceColIndex)?.header || "enrich").replace(/\s+/g, "_") || "enrich");
+      const targetField = String($("#enrichTargetFieldSelect").val() || "").trim();
+      const idOutputHeader = String($("#enrichIdOutputHeader").val() || "").trim() || targetField || `${outputPrefix}__db_id`;
+
+      if (!parentTableKey) {
+        alert("Please select a parent table for enrichment.");
+        return;
+      }
+      if (!reportId || !matchColumnKey || !idColumnKey) {
+        alert("Please select a report and choose match + id columns.");
+        return;
+      }
+      if (!Number.isFinite(sourceColIndex)) {
+        alert("Please select a source column.");
+        return;
+      }
+      if (!idOutputHeader) {
+        alert("Please select a target field (recommended) or provide an output header for the matched id.");
+        return;
+      }
+
+      // Prevent collisions with mapped output headers (this keeps export predictable)
+      const mappedHeaders = new Set(Array.from(columnToField.entries()).filter(([ci, fn]) => fn && !ignoredColumnIndexes.has(ci)).map(([_, fn]) => fn));
+      if (mappedHeaders.has(idOutputHeader)) {
+        alert(`Output header "${idOutputHeader}" already exists in your mapped export headers. Choose a different target field/header for enrichment.`);
+        return;
+      }
+
+      const id = `enr_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      enrichRules.push({
+        id,
+        name,
+        sourceColIndex,
+        parentTableKey,
+        reportId,
+        matchColumnKey,
+        idColumnKey,
+        returnColumnKey: returnColumnKey || "",
+        matchNormalizeMode,
+        outputPrefix,
+        idOutputHeader,
+      });
+
+      // Clear caches so next build recalculates indexes as needed
+      enrichCaches.clear();
+      $("#enrichValidationSummary").addClass("d-none").empty();
+      renderEnrichRulesTable();
+      updateActionButtons();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("enrichModal")).hide();
+    }
+
+    async function loadReportSampleIntoModal() {
+      const selected = String($("#lookupReportSelect").val() || "").trim();
+      const reportId =
+        selected === "__custom__"
+          ? String($("#lookupReportIdCustom").val() || "").trim()
+          : selected;
+      if (!reportId) return alert("Select a report (or enter a custom report id).");
+      $("#lookupLoadReportSampleBtn").prop("disabled", true).html(`<span class="spinner-border spinner-border-sm me-2"></span>Loading...`);
+      try {
+        const rows = await queryReport(reportId);
+        const arr = Array.isArray(rows) ? rows : [];
+        const sample = arr.slice(0, 25);
+        const keys = sample[0] ? Object.keys(sample[0]) : [];
+
+        const $match = $("#lookupMatchColumn");
+        const $ret = $("#lookupReturnColumn");
+        $match.empty();
+        $ret.empty();
+        keys.forEach(k => {
+          $match.append(`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`);
+          $ret.append(`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`);
+        });
+
+        // Defaults
+        const lowerKeys = keys.map(k => k.toLowerCase());
+        const guessReturn =
+          keys[lowerKeys.indexOf("id")] ||
+          keys[lowerKeys.indexOf("recordid")] ||
+          keys.find(k => k.toLowerCase().endsWith("_id")) ||
+          keys[0] ||
+          "";
+
+        let guessMatch = "";
+        for (let i = 0; i < keys.length; i++) {
+          const lk = lowerKeys[i];
+          if (lk.includes("project") && lk.includes("number")) { guessMatch = keys[i]; break; }
+          if (lk.endsWith("_project_number")) { guessMatch = keys[i]; break; }
+        }
+        if (!guessMatch) guessMatch = keys[0] || "";
+
+        if (guessMatch) $match.val(guessMatch);
+        if (guessReturn) $ret.val(guessReturn);
+
+        $("#lookupSamplePreview").text(JSON.stringify(sample, null, 2));
+      } catch (e) {
+        console.error(e);
+        alert("Failed to load report sample. Check token/auth and report access.");
+      } finally {
+        $("#lookupLoadReportSampleBtn").prop("disabled", false).html(`<i class="bi bi-search me-1"></i>Load Sample`);
+      }
+    }
+
+    function saveLookupRuleFromModal() {
+      const targetFieldName = $("#lookupTargetField").val();
+      const sourceColIndex = Number($("#lookupSourceColumn").val());
+      const selected = String($("#lookupReportSelect").val() || "").trim();
+      const reportId =
+        selected === "__custom__"
+          ? String($("#lookupReportIdCustom").val() || "").trim()
+          : selected;
+      const matchColumnKey = $("#lookupMatchColumn").val();
+      const returnColumnKey = $("#lookupReturnColumn").val();
+      const matchNormalizeMode = $("#lookupNormalizeMode").val();
+
+      if (!targetFieldName) return alert("Pick a target field.");
+      if (!reportId) return alert("Select a report (or enter a custom report id).");
+      if (!matchColumnKey) return alert("Pick the report column to match against (load sample first).");
+      if (!returnColumnKey) return alert("Pick the report column to return (record id).");
+
+      lookupRules.set(targetFieldName, {
+        sourceColIndex,
+        reportId,
+        matchColumnKey,
+        returnColumnKey,
+        matchNormalizeMode,
+      });
+      lookupCaches.clear();
+      renderLookupRulesTable();
+      updateActionButtons();
+      $("#lookupValidationSummary").addClass("d-none").empty();
+
+      const modalEl = document.getElementById("lookupModal");
+      bootstrap.Modal.getInstance(modalEl)?.hide();
+    }
+
+    async function handleIncomingFile(file) {
+      // basic validation
+      const ok = file.name.match(/\.(xlsx|xls)$/i);
+      if (!ok) return alert("Please upload a .xlsx or .xls file.");
+
+      resetFileState();
+      $("#fileInfo").removeClass("d-none");
+      $("#fileName").text(file.name);
+      $("#fileSize").text(fmtBytes(file.size));
+
+      try {
+        await readExcelFile(file);
+        updateActionButtons();
+      } catch (e) {
+        console.error(e);
+        alert("Failed to read Excel file. The file may be corrupted or unsupported.");
+        resetFileState();
+      }
+    }
+  </script>
+</body>
+</html>

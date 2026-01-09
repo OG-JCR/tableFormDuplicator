@@ -543,3 +543,160 @@ Internal use only - GAB Platform
 **Platform:** GAB Platform  
 **Last Updated:** December 2025
 
+
+---
+
+## Excel → Table Field Mapper (Data Validator)
+
+### Overview
+
+The **Excel → Table Field Mapper** (`gab_DataValidator.html`) is a web-based utility that helps you take an Excel spreadsheet and turn it into a **clean, import-safe CSV** aligned to a GAB table’s **FieldName tokens**, with optional **relationship lookups**, **database enrichment**, and **dropdown (ENUM/ENUM2) validation/fixes**.
+
+This tool is designed for the common “Excel → GAB import” workflow where:
+- File headers don’t exactly match the system’s field tokens
+- Relationship fields require **IDs** (not human-friendly labels)
+- ENUM/ENUM2 fields require values that exist in the dropdown list
+- Some importers are strict about commas/quotes/newlines in CSV values
+
+### Features
+
+#### Core capabilities
+
+- **Excel ingestion (SheetJS)**: reads `.xlsx/.xls`, supports multiple sheets, previews rows
+- **Table selection** by Application Key: loads tables, then loads fields for the selected table
+- **Mapping engine**: suggests column → field mappings using **name similarity** + **type compatibility**
+- **Interactive mapping UI**:
+  - Approve suggestions
+  - Manually select a target field per column
+  - Ignore columns (excluded from export)
+  - Detect and block **duplicate mappings** (multiple columns mapped to the same FieldName) to prevent silent data loss
+- **Relationship lookup rules (Crosswalk)**:
+  - Convert file identifiers (e.g., “Project Number”) to the **record ID** needed by relationship fields
+  - Uses reports (via `queryreport`) as the “lookup dataset”
+  - Includes normalization modes for tricky names (ampersands, dashes, punctuation)
+  - Includes a guarded **substring fallback** for cases like “PB&J Construction” containing “PB&J”
+- **DB VLOOKUP enrichment**:
+  - Look up existing database records and **append** columns like `<prefix>__db_id` and an optional extra field
+  - Does not overwrite mapped fields
+- **ENUM/ENUM2 validation and fixes**:
+  - Loads dropdown values and reconciles file values using exact/normalized/abbreviation matching
+  - “Find & Replace All” fixes per field
+  - Optional: add new dropdown options directly to the system field definition (PUT `/api/Field`)
+- **Export & import helpers**:
+  - Download normalized CSV
+  - Preview CSV (table view + raw snippet)
+  - Optional: create records via `FormAction/postdata`
+  - “Import-safe CSV mode”: strips problematic delimiters/quotes/newlines for naive importers
+  - “Debug lookup mode”: keeps original identifiers and appends `__lookup_id` + `__lookup_status` columns
+  - Debug XLSX export with 3 tabs: All / All lookups matched / Needs lookup
+
+### Usage guide
+
+#### Step 1 — Upload Excel
+- Upload a `.xlsx` or `.xls` (click or drag/drop)
+- Select the worksheet
+- Choose **Header row** and **Data start row**
+- Review the preview table (first ~10 rows)
+
+#### Step 2 — Choose App + Table
+- Enter **Application Key**
+- Click **Load Tables** (uses `GET /api/applicationtable/getbyapplicationid?id={appKey}`)
+- Select the target table (uses `GET /api/Field/getbytableid?id={tableKey}`)
+- Optional: **Suggest Table** (heuristic based on sheet name + header/field similarity)
+
+#### Step 3 — Map Columns → Fields
+- Use **Auto-map** for a first pass
+- Approve suggestions (or choose a different field)
+- Ignore columns you don’t want exported/imported
+- Ensure you have **no duplicate target field mappings** (export is blocked when duplicates exist)
+
+#### Step 3a — Lookup Rules (Crosswalk) (Optional)
+Add a lookup when a file column contains a human identifier, but the table field requires a record ID.
+
+- Choose:
+  - Source file column (identifier)
+  - Target table field (often a relationship field token)
+  - Parent table (where the identifier lives)
+  - Report (used as lookup dataset)
+  - Match column and Return column from the report sample
+- Run **Validate Lookups** to see orphaned identifiers (provided but not matched)
+
+#### Step 3b — DB VLOOKUP (Enrichment) (Optional)
+Add enrichment when you want to append database values without changing your mapped export headers.
+
+- Choose:
+  - Source file column (identifier)
+  - Parent table + report
+  - Match column, ID column, and optional “return extra field”
+  - Output prefix / output header
+
+#### Step 4 — Export / Import
+- **Preview CSV** to inspect output headers and sample rows
+- **Download CSV** to generate the normalized artifact
+- Optional: **Import via postdata** to create records in the selected table
+
+### Technical architecture
+
+#### Pipeline (conceptual)
+
+```
+Excel (.xlsx) → Parse Sheet → Infer Types → Suggest/Apply Mappings → Resolve Lookups/Enums → Build Normalized Rows → Export CSV / Import
+```
+
+#### Key state structures
+
+- `columnToField`: Map(file column index → target FieldName token)
+- `ignoredColumnIndexes`: Set(file columns excluded from export)
+- `lookupRules`: Map(target FieldName → rule config)
+- `lookupCaches`: reportId → cached rows + per-field lookup indexes
+- `enrichRules`: list of enrichment rules that append output columns
+- `dropdownValuesByFieldKey`: cached ENUM options + indexes (exact/normalized/abbrev)
+- `enumValueFixesByFieldName`: per-field “Find & Replace All” overrides
+
+#### Key functions
+
+- **Excel + columns**: `readExcelFile`, `loadActiveSheet`, `computeColumns`, `inferColumnType`
+- **Mapping**: `bestFieldMatchesForColumn`, `autoMap`
+- **Reports/lookups**: `loadReportsForTableKey`, `queryReport`, `ensureLookupCachesBuilt`, `lookupSubstringFallback`
+- **ENUM handling**: `loadDropdownValuesForFieldKeyCached`, `resolveEnumValueForField`, `addEnumOptionToField`, `addEnumOptionsToFieldBulk`
+- **Export/import**: `buildNormalizedRows`, `downloadCsv`, `previewCsv`, `importViaPostdata`
+
+### API endpoints used
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/applicationtable/getbyapplicationid` | GET | Load tables for an application key |
+| `/api/Field/getbytableid` | GET | Load fields for a table key |
+| `/api/report/getreportbytableid` | GET | Load reports for a table (used for lookups/enrichment) |
+| `/api/Report/queryreport` | POST | Query a report and use its rows as a lookup/enrichment dataset |
+| `/api/Field/getdropdownvalues` | GET | Load allowed dropdown values for ENUM/ENUM2 fields |
+| `/api/Field` | PUT | Update dropdown options (when “Add option” is used) |
+| `/api/FormAction/postdata` | POST | (Optional) Create records from normalized rows |
+
+### Configuration & environment notes
+
+- **Auth**: decrypts a user token from `localStorage` using AES (same pattern as the duplicator tool).
+- **API base**:
+  - Production: `https://api.ignatius.io`
+  - Local dev convenience: when running on `localhost`, API base becomes `/proxy` (you’d need a local proxy for that workflow).
+
+### Known limitations / guardrails
+
+- **Duplicate mappings are blocked**: if two columns map to the same FieldName, export is disabled until resolved.
+- **Lookup accuracy depends on the report dataset**: if the report doesn’t contain the identifier, it will be flagged as orphaned.
+- **Substring fallback is conservative by design**: helps with “A&B” / “Smith-Jones” cases while avoiding aggressive false-positive matching.
+- **Import-safe CSV mode trades fidelity for safety**: strips commas/quotes/newlines to satisfy naive importers.
+- **ENUM reconciliation depends on dropdown source of truth**: if dropdown values can’t be loaded, reconciliation degrades to pass-through.
+
+### Best practices
+
+#### Before exporting/importing
+- Validate lookups (and enrichment) first to minimize orphaned relationship values.
+- Preview CSV to confirm headers (FieldName tokens) and sample row conversions look correct.
+- Keep Import-safe CSV mode enabled if your importer is strict about quoting/newlines.
+
+#### Troubleshooting
+
+- **Lookups show “missing/orphaned”**: verify report selection, match column, normalization mode, and that identifiers exist in the report.
+- **Enums show “unmatched”**: use Fix Enum Values (Find & Replace All) or add options to the dropdown if appropriate.
+- **Import via postdata fails**: enable Technical Mode and inspect console output for per-row failures.
