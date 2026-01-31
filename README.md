@@ -4,6 +4,17 @@
 
 The **Table & Form Duplicator** is a powerful web-based tool designed to duplicate table structures and forms within the GAB Platform. It provides an intuitive interface for copying tables with their fields, custom field types, and associated forms, including complex form logic and conditional rules.
 
+## Tools in this repo
+
+- **`gab_tableDuplicator.html`**: Table & Form Duplicator (duplicate table schema + optionally duplicate forms + rules)
+- **`gab_DataValidator.html`**: Excel → Table Field Mapper / Data Validator (map Excel columns to FieldName tokens, validate lookups/enums, export import-safe CSV, optional `postdata` import)
+
+### Quick start
+
+1. Open the desired HTML file in a modern browser (Chrome recommended).
+2. Ensure you are logged into the GAB Platform in that browser so `localStorage` contains your encrypted token.
+3. Use the tool UI to perform the workflow (duplication or mapping/export/import). For debugging, open DevTools Console.
+
 ## Features
 
 ### Core Capabilities
